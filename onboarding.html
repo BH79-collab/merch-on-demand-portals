@@ -36,8 +36,9 @@ const PRICE_IDS = {
 
 const sb = supabase.createClient(SUPA_URL, SUPA_KEY);
 
-// Single global Stripe instance — must use same one everywhere
-const stripeInstance = Stripe(STRIPE_PK);
+// Single global Stripe instance — lazy init to ensure Stripe.js is loaded
+let _stripe = null;
+const getStripe = () => { if (!_stripe) _stripe = Stripe(STRIPE_PK); return _stripe; };
 
 // ── Design tokens ─────────────────────────────────────────────────────────────
 const T = {
@@ -243,7 +244,7 @@ function StepPayment({plan,cardRef,setCardReady}){
 
   useEffect(()=>{
     if(!mountRef.current)return;
-    const elements=stripeInstance.elements();
+    const elements=getStripe().elements();
     const card=elements.create("card",{
       style:{base:{color:T.ink,fontFamily:"'Segoe UI',sans-serif",fontSize:"15px","::placeholder":{color:T.muted}},invalid:{color:T.accent}},
     });
@@ -695,7 +696,7 @@ function App(){
     try{
       const plan=PLANS.find(p=>p.id===planId);
       // 1. Create Stripe payment method
-      const{paymentMethod,error}=await stripeInstance.createPaymentMethod({
+      const{paymentMethod,error}=await getStripe().createPaymentMethod({
         type:"card",card:cardRef.current,
         billing_details:{email:contact.email,name:`${contact.firstName} ${contact.lastName}`},
       });
@@ -717,7 +718,7 @@ function App(){
 
       // 3. Confirm if 3D Secure required
       if(subData.clientSecret){
-        const{error:ce}=await stripeInstance.confirmCardPayment(subData.clientSecret);
+        const{error:ce}=await getStripe().confirmCardPayment(subData.clientSecret);
         if(ce)throw new Error(ce.message);
       }
 
@@ -807,9 +808,3 @@ function App(){
             }
           </div>
         </div>
-      </div>
-    </>
-  );
-}
-
-ReactDOM.createRoot(document.getElement

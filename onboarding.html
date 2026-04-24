@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Merch on Demand — Vendor Application</title>
+<script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+<script src="https://js.stripe.com/v3/"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#FAF8F4;font-family:'Segoe UI',sans-serif}
+@keyframes spin{to{transform:rotate(360deg)}}
+input,select,textarea{font-family:inherit}
+::-webkit-scrollbar{width:4px}
+::-webkit-scrollbar-thumb{background:#E8E4DC;border-radius:2px}
+select option{background:white;color:#1A1714}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+
+// ── Config ────────────────────────────────────────────────────────────────────
+const SUPA_URL  = "https://xwennpgxsndjpbwdmcwk.supabase.co";
+const SUPA_KEY  = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh3ZW5ucGd4c25kanBid2RtY3drIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY5ODc1MjksImV4cCI6MjA5MjU2MzUyOX0.LAyCQtlsF9puLftwyK67qwsYED7PksZeP3QoD0lmuTA";
+const STRIPE_PK = "pk_live_51O2OzhLgoqGtM7YGmzxSIZM6XNNfgJGpfIQYYcoT7JnFneionzk0gFfn0S8AiqvJZDhGI0zj2qQ28FvPF2Z0fFs7006Y2B3SXR";
+const PROXY     = "https://shopify-proxy-production-c72c.up.railway.app";
+const PRICE_IDS = {
+  starter: "price_1TPZnhLgoqGtM7YGeJD5rUrp",
+  growth:  "price_1TPZplLgoqGtM7YGhboA3FYp",
+  pro:     "price_1TPZq1LgoqGtM7YGtx7koBm2",
+};
+
+const sb = supabase.createClient(SUPA_URL, SUPA_KEY);
+
+// ── Design tokens ─────────────────────────────────────────────────────────────
+const T = {
+  bg:"#FAF8F4", surface:"#FFFFFF", border:"#E8E4DC",
+  ink:"#1A1714", muted:"#8C8580", faint:"#F0EDE8",
+  accent:"#D4521A", accentBg:"#FDF1EB", accentBorder:"#F0C4A8",
+  green:"#2A7A4B", greenBg:"#EBF5EF",
+};
+
+const PLANS = [
+  { id:"starter", name:"Starter", price:29.95, payout:10, colour:T.ink,    badge:null,
+    features:["Up to 3 products","$10 per item sold","DTF print","Monthly payout","Email support"] },
+  { id:"growth",  name:"Growth",  price:59.95, payout:12, colour:T.accent, badge:"POPULAR",
+    features:["Up to 10 products","$12 per item sold","DTF print","Priority payout","Full analytics","Priority support","Featured placement"] },
+  { id:"pro",     name:"Pro",     price:99.95, payout:15, colour:"#8B5CF6",badge:"BEST VALUE",
+    features:["Unlimited products","$15 per item sold","DTF + Embroidery","Weekly payout","Advanced analytics","Dedicated manager","Homepage feature"] },
+];
+
+const STEPS = [
+  {id:"brand",   label:"Brand",   icon:"◆"},
+  {id:"contact", label:"Contact", icon:"◎"},
+  {id:"bank",    label:"Banking", icon:"⬡"},
+  {id:"plan",    label:"Plan",    icon:"★"},
+  {id:"payment", label:"Payment", icon:"💳"},
+  {id:"design",  label:"Design",  icon:"✦"},
+  {id:"review",  label:"Review",  icon:"◈"},
+];
+
+const {useState, useRef, useEffect} = React;
+
+// ── Atoms ─────────────────────────────────────────────────────────────────────
+function Spin(){return <span style={{display:"inline-block",width:14,height:14,border:"2px solid rgba(26,23,20,0.15)",borderTopColor:T.ink,borderRadius:"50%",animation:"spin 0.7s linear infinite"}}/>;}
+
+function Label({children,required}){
+  return <label style={{display:"block",fontSize:11,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:6}}>{children}{required&&<span style={{color:T.accent,marginLeft:3}}>*</span>}</label>;
+}
+function Inp({label,required,value,onChange,placeholder,type="text",hint,mono}){
+  return(
+    <div style={{marginBottom:18}}>
+      {label&&<Label required={required}>{label}</Label>}
+      <input type={type} value={value||""} onChange={e=>onChange(e.target.value)} placeholder={placeholder}
+        style={{width:"100%",padding:"11px 14px",background:T.surface,border:`1.5px solid ${T.border}`,borderRadius:10,fontSize:mono?12:14,color:T.ink,fontFamily:mono?"monospace":"inherit",outline:"none",boxSizing:"border-box"}}
+        onFocus={e=>e.target.style.borderColor=T.accent} onBlur={e=>e.target.style.borderColor=T.border}/>
+      {hint&&<p style={{color:T.muted,fontSize:11,marginTop:4}}>{hint}</p>}
+    </div>
+  );
+}
+function SelF({label,required,value,onChange,options}){
+  return(
+    <div style={{marginBottom:18}}>
+      {label&&<Label required={required}>{label}</Label>}
+      <select value={value||""} onChange={e=>onChange(e.target.value)}
+        style={{width:"100%",padding:"11px 14px",background:T.surface,border:`1.5px solid ${T.border}`,borderRadius:10,fontSize:14,color:value?T.ink:T.muted,fontFamily:"inherit",outline:"none",appearance:"none",boxSizing:"border-box"}}>
+        <option value="">Select…</option>
+        {options.map(o=><option key={o} value={o}>{o}</option>)}
+      </select>
+    </div>
+  );
+}
+function Btn({children,onClick,disabled,isLast,outline}){
+  const bg=disabled?T.faint:isLast?T.green:T.ink;
+  return <button onClick={onClick} disabled={disabled} style={{flex:outline?1:2,padding:"13px",background:outline?T.faint:bg,border:outline?`1.5px solid ${T.border}`:"none",borderRadius:12,fontSize:14,fontWeight:700,color:disabled?T.muted:outline?T.muted:"white",cursor:disabled?"default":"pointer",fontFamily:"inherit"}}>{children}</button>;
+}
+
+function ProgressBar({step}){
+  const idx=STEPS.findIndex(s=>s.id===step);
+  const pct=(idx/(STEPS.length-1))*100;
+  return(
+    <div>
+      <div style={{display:"flex",justifyContent:"space-between",marginBottom:10}}>
+        {STEPS.map((s,i)=>{const done=i<idx,cur=i===idx;return(
+          <div key={s.id} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
+            <div style={{width:28,height:28,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",fontSize:s.icon==="💳"?11:11,fontWeight:700,background:done?T.accent:cur?T.ink:T.faint,color:done||cur?"white":T.muted,border:`2px solid ${done?T.accent:cur?T.ink:T.border}`}}>
+              {done?"✓":s.icon}
+            </div>
+            <span style={{fontSize:8,fontWeight:700,color:cur?T.ink:T.muted,textTransform:"uppercase",letterSpacing:"0.06em"}}>{s.label}</span>
+          </div>
+        );})}
+      </div>
+      <div style={{height:3,background:T.border,borderRadius:99,overflow:"hidden"}}>
+        <div style={{height:3,width:`${pct}%`,background:T.accent,borderRadius:99,transition:"width 0.4s ease"}}/>
+      </div>
+    </div>
+  );
+}
+
+function StepHeader({title,subtitle}){
+  return(
+    <div style={{marginBottom:26}}>
+      <h2 style={{fontFamily:"Georgia,serif",fontSize:26,fontWeight:700,color:T.ink,margin:0,lineHeight:1.2}}>{title}</h2>
+      {subtitle&&<p style={{color:T.muted,fontSize:13,marginTop:6,lineHeight:1.6}}>{subtitle}</p>}
+    </div>
+  );
+}
+
+// ── STEP: BRAND ───────────────────────────────────────────────────────────────
+function StepBrand({data,setData}){
+  const s=k=>v=>setData(d=>({...d,[k]:v}));
+  return(
+    <div>
+      <StepHeader title="Your Brand" subtitle="Tell us about the brand you're bringing to Merch on Demand."/>
+      <Inp label="Brand Name" required value={data.brandName} onChange={s("brandName")} placeholder="e.g. Rivera Designs"/>
+      <Inp label="Tagline" value={data.tagline} onChange={s("tagline")} placeholder="Bold streetwear for everyday people" hint="Shown on your store page — under 10 words."/>
+      <div style={{marginBottom:22}}>
+        <Label>Category</Label>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          {["Fashion","Music","Sports","Art","Gaming","Lifestyle","Business","Other"].map(cat=>{
+            const active=data.category===cat;
+            return <button key={cat} onClick={()=>setData(d=>({...d,category:cat}))} style={{padding:"8px 16px",background:active?T.ink:T.faint,border:`1.5px solid ${active?T.ink:T.border}`,borderRadius:99,fontSize:12,fontWeight:600,color:active?"white":T.muted,cursor:"pointer",fontFamily:"inherit"}}>{cat}</button>;
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── STEP: CONTACT ─────────────────────────────────────────────────────────────
+function StepContact({data,setData}){
+  const s=k=>v=>setData(d=>({...d,[k]:v}));
+  return(
+    <div>
+      <StepHeader title="Contact Details" subtitle="Your personal details for account management and payout notifications."/>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 14px"}}>
+        <Inp label="First Name" required value={data.firstName} onChange={s("firstName")} placeholder="Jake"/>
+        <Inp label="Last Name"  required value={data.lastName}  onChange={s("lastName")}  placeholder="Rivera"/>
+      </div>
+      <Inp label="Email" required type="email" value={data.email} onChange={s("email")} placeholder="jake@riveradesigns.com"/>
+      <Inp label="Phone" required type="tel"   value={data.phone} onChange={s("phone")} placeholder="+61 4XX XXX XXX"/>
+      <div style={{height:1,background:T.border,margin:"6px 0 22px"}}/>
+      <p style={{fontFamily:"Georgia,serif",fontSize:17,fontWeight:700,color:T.ink,marginBottom:16}}>Business Address</p>
+      <Inp label="Street Address" required value={data.street}  onChange={s("street")}  placeholder="123 Main Street"/>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 14px"}}>
+        <Inp label="Suburb / City" required value={data.suburb} onChange={s("suburb")} placeholder="Melbourne"/>
+        <SelF label="State" required value={data.state} onChange={s("state")} options={["NSW","VIC","QLD","WA","SA","TAS","ACT","NT"]}/>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 14px"}}>
+        <Inp label="Postcode" required value={data.postcode} onChange={s("postcode")} placeholder="3000"/>
+        <SelF label="Country" value={data.country} onChange={s("country")} options={["Australia","New Zealand","United Kingdom","United States","Canada"]}/>
+      </div>
+    </div>
+  );
+}
+
+// ── STEP: BANK ────────────────────────────────────────────────────────────────
+function StepBank({data,setData}){
+  const s=k=>v=>setData(d=>({...d,[k]:v}));
+  return(
+    <div>
+      <StepHeader title="Banking Details" subtitle="We'll use these to send your monthly payouts. Encrypted and never shared."/>
+      <div style={{background:T.accentBg,border:`1.5px solid ${T.accentBorder}`,borderRadius:12,padding:14,marginBottom:22}}>
+        <p style={{color:T.accent,fontSize:12,fontWeight:700,marginBottom:4}}>🔒 Secure & Private</p>
+        <p style={{color:T.muted,fontSize:12,lineHeight:1.6}}>Used solely for monthly payout transfers via ABA Direct Entry — standard AU bank-to-bank system.</p>
+      </div>
+      <Inp label="Bank Name" required value={data.bank} onChange={s("bank")} placeholder="e.g. Commonwealth Bank"/>
+      <Inp label="Account Name" required value={data.accountName} onChange={s("accountName")} placeholder="Must match your bank account exactly" hint="Use the exact name as it appears on your account."/>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 14px"}}>
+        <Inp label="BSB" required value={data.bsb} onChange={s("bsb")} placeholder="062-000" hint="Format XXX-XXX" mono/>
+        <Inp label="Account Number" required value={data.accountNumber} onChange={s("accountNumber")} placeholder="12345678" mono/>
+      </div>
+    </div>
+  );
+}
+
+// ── STEP: PLAN ────────────────────────────────────────────────────────────────
+function StepPlan({selectedPlan,onSelect}){
+  return(
+    <div>
+      <StepHeader title="Choose Your Plan" subtitle="Select the plan that best fits your brand. Upgrade or downgrade any time."/>
+      <div style={{display:"flex",flexDirection:"column",gap:14}}>
+        {PLANS.map(plan=>{const active=selectedPlan===plan.id;return(
+          <div key={plan.id} onClick={()=>onSelect(plan.id)}
+            style={{border:`2px solid ${active?plan.colour:T.border}`,borderRadius:16,padding:20,cursor:"pointer",background:active?"rgba(0,0,0,0.02)":T.surface,position:"relative"}}>
+            {plan.badge&&<div style={{position:"absolute",top:-1,right:16,background:plan.colour,color:"white",fontSize:9,fontWeight:800,padding:"3px 10px",borderRadius:"0 0 8px 8px",letterSpacing:"0.1em"}}>{plan.badge}</div>}
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14}}>
+              <div style={{display:"flex",alignItems:"center",gap:10}}>
+                <div style={{width:20,height:20,borderRadius:"50%",border:`2.5px solid ${active?plan.colour:T.border}`,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                  {active&&<div style={{width:10,height:10,borderRadius:"50%",background:plan.colour}}/>}
+                </div>
+                <div>
+                  <p style={{fontFamily:"Georgia,serif",fontSize:20,fontWeight:700,color:T.ink}}>{plan.name}</p>
+                  <p style={{color:plan.colour,fontSize:13,fontWeight:700}}>${plan.payout} payout per item sold</p>
+                </div>
+              </div>
+              <div style={{textAlign:"right"}}>
+                <p style={{fontFamily:"Georgia,serif",fontSize:28,fontWeight:900,color:plan.colour,lineHeight:1}}>${plan.price}</p>
+                <p style={{color:T.muted,fontSize:11}}>per month</p>
+              </div>
+            </div>
+            <div style={{display:"flex",flexDirection:"column",gap:5}}>
+              {plan.features.map(f=><div key={f} style={{display:"flex",alignItems:"flex-start",gap:8}}><span style={{color:plan.colour,fontSize:13,marginTop:1,flexShrink:0}}>✓</span><p style={{color:T.muted,fontSize:13}}>{f}</p></div>)}
+            </div>
+          </div>
+        );})}
+      </div>
+    </div>
+  );
+}
+
+// ── STEP: PAYMENT (real Stripe Elements) ──────────────────────────────────────
+function StepPayment({plan,cardRef,setCardReady}){
+  const selectedPlan=PLANS.find(p=>p.id===plan);
+  const mountRef=useRef(null);
+
+  useEffect(()=>{
+    if(!mountRef.current)return;
+    const stripe=Stripe(STRIPE_PK);
+    const elements=stripe.elements();
+    const card=elements.create("card",{
+      style:{base:{color:T.ink,fontFamily:"'Segoe UI',sans-serif",fontSize:"15px","::placeholder":{color:T.muted}},invalid:{color:T.accent}},
+    });
+    card.mount(mountRef.current);
+    card.on("change",e=>setCardReady(!e.empty&&!e.error));
+    cardRef.current=card;
+    return()=>card.destroy();
+  },[]);
+
+  return(
+    <div>
+      <StepHeader title="Payment Details" subtitle="Your subscription starts immediately. Cancel any time."/>
+      {selectedPlan&&(
+        <div style={{background:T.faint,border:`1.5px solid ${T.border}`,borderRadius:14,padding:16,marginBottom:24}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <div><p style={{color:T.ink,fontWeight:700,fontSize:15}}>{selectedPlan.name} Plan</p><p style={{color:T.muted,fontSize:12,marginTop:2}}>${selectedPlan.payout} per item · billed monthly</p></div>
+            <div style={{textAlign:"right"}}><p style={{color:selectedPlan.colour,fontFamily:"Georgia,serif",fontSize:22,fontWeight:900}}>${selectedPlan.price}</p><p style={{color:T.muted,fontSize:10}}>/month</p></div>
+          </div>
+        </div>
+      )}
+      <div style={{background:T.surface,border:`1.5px solid ${T.border}`,borderRadius:16,padding:20,marginBottom:16}}>
+        <p style={{fontFamily:"Georgia,serif",fontSize:15,fontWeight:700,color:T.ink,marginBottom:16}}>Card Details</p>
+        <div ref={mountRef} style={{padding:"12px 14px",background:T.faint,border:`1.5px solid ${T.border}`,borderRadius:10,minHeight:44}}/>
+        <div style={{display:"flex",alignItems:"center",gap:8,marginTop:14,padding:"10px 12px",background:T.greenBg,border:`1px solid ${T.green}`,borderRadius:10}}>
+          <span style={{fontSize:16}}>🔒</span>
+          <p style={{color:T.green,fontSize:11,fontWeight:600}}>Secured by Stripe · 256-bit SSL</p>
+        </div>
+      </div>
+      <div style={{background:T.faint,border:`1.5px solid ${T.border}`,borderRadius:12,padding:14}}>
+        {[["First charge",`$${selectedPlan?.price||"—"} today`],["Then billed","Monthly on the same date"],["Cancel anytime","No lock-in contract"],["Payout rate",`$${selectedPlan?.payout||"—"} per item sold`]].map(([l,v])=>(
+          <div key={l} style={{display:"flex",justifyContent:"space-between",padding:"7px 0",borderBottom:`1px solid ${T.border}`}}><span style={{color:T.muted,fontSize:13}}>{l}</span><span style={{color:T.ink,fontSize:13,fontWeight:700}}>{v}</span></div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── STEP: DESIGN (simplified) ─────────────────────────────────────────────────
+function StepDesign({data,setData}){
+  const s=k=>v=>setData(d=>({...d,[k]:v}));
+  return(
+    <div>
+      <StepHeader title="Product Design" subtitle="Tell us what products you want and how you'd like your logo placed. Our team will handle the rest."/>
+      <div style={{marginBottom:18}}>
+        <Label>Products you want to offer</Label>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          {["T-Shirt","Hoodie","Cap"].map(p=>{
+            const sel=(data.products||[]).includes(p);
+            return <button key={p} onClick={()=>setData(d=>({...d,products:sel?(d.products||[]).filter(x=>x!==p):[...(d.products||[]),p]}))} style={{padding:"9px 18px",background:sel?T.ink:T.faint,border:`1.5px solid ${sel?T.ink:T.border}`,borderRadius:10,fontSize:13,fontWeight:700,color:sel?"white":T.muted,cursor:"pointer",fontFamily:"inherit"}}>{p}</button>;
+          })}
+        </div>
+      </div>
+      <div style={{marginBottom:18}}>
+        <Label>Garment Colours</Label>
+        <Inp value={data.colours} onChange={s("colours")} placeholder="e.g. Black, White, Navy, Forest" hint="List the colours you want. We'll confirm availability."/>
+      </div>
+      <div style={{marginBottom:18}}>
+        <Label>Sizes to offer</Label>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          {["XS","S","M","L","XL","2XL","3XL"].map(sz=>{
+            const sel=(data.sizes||[]).includes(sz);
+            return <button key={sz} onClick={()=>setData(d=>({...d,sizes:sel?(d.sizes||[]).filter(x=>x!==sz):[...(d.sizes||[]),sz]}))} style={{padding:"7px 14px",background:sel?T.ink:T.faint,border:`1.5px solid ${sel?T.ink:T.border}`,borderRadius:8,fontSize:12,fontWeight:700,color:sel?"white":T.muted,cursor:"pointer",fontFamily:"inherit"}}>{sz}</button>;
+          })}
+        </div>
+      </div>
+      <div style={{marginBottom:18}}>
+        <Label>Logo placement preference</Label>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          {["Front chest","Back centre","Front & back","Left chest","Full front"].map(p=>{
+            const sel=(data.placement||[]).includes(p);
+            return <button key={p} onClick={()=>setData(d=>({...d,placement:sel?(d.placement||[]).filter(x=>x!==p):[...(d.placement||[]),p]}))} style={{padding:"7px 14px",background:sel?T.ink:T.faint,border:`1.5px solid ${sel?T.ink:T.border}`,borderRadius:8,fontSize:12,fontWeight:700,color:sel?"white":T.muted,cursor:"pointer",fontFamily:"inherit"}}>{p}</button>;
+          })}
+        </div>
+      </div>
+      <div>
+        <Label>Design Notes</Label>
+        <textarea value={data.notes||""} onChange={e=>setData(d=>({...d,notes:e.target.value}))}
+          placeholder="Any special instructions — logo size, colours, placement details, anything our team should know..."
+          rows={4} style={{width:"100%",padding:"12px 14px",background:T.surface,border:`1.5px solid ${T.border}`,borderRadius:10,fontSize:13,color:T.ink,fontFamily:"inherit",outline:"none",resize:"vertical",boxSizing:"border-box",lineHeight:1.6}}
+          onFocus={e=>e.target.style.borderColor=T.accent} onBlur={e=>e.target.style.borderColor=T.border}/>
+      </div>
+    </div>
+  );
+}
+
+// ── STEP: REVIEW ──────────────────────────────────────────────────────────────
+function StepReview({brand,contact,bank,planId,design}){
+  const plan=PLANS.find(p=>p.id===planId);
+  const Row=({l,v})=>v?<div style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:`1px solid ${T.faint}`}}><span style={{color:T.muted,fontSize:13}}>{l}</span><span style={{color:T.ink,fontSize:13,fontWeight:600,maxWidth:"60%",textAlign:"right"}}>{v}</span></div>:null;
+  const Sec=({title,children})=><div style={{marginBottom:22}}><p style={{fontFamily:"Georgia,serif",fontSize:15,fontWeight:700,color:T.ink,marginBottom:10,paddingBottom:8,borderBottom:`1.5px solid ${T.border}`}}>{title}</p>{children}</div>;
+  return(
+    <div>
+      <StepHeader title="Review & Submit" subtitle="Check everything looks right before submitting."/>
+      <Sec title="Brand"><Row l="Brand" v={brand.brandName}/><Row l="Tagline" v={brand.tagline}/><Row l="Category" v={brand.category}/></Sec>
+      <Sec title="Contact"><Row l="Name" v={`${contact.firstName} ${contact.lastName}`}/><Row l="Email" v={contact.email}/><Row l="Phone" v={contact.phone}/><Row l="Address" v={[contact.street,contact.suburb,contact.state,contact.postcode].filter(Boolean).join(", ")}/></Sec>
+      <Sec title="Banking"><Row l="Bank" v={bank.bank}/><Row l="Account Name" v={bank.accountName}/><Row l="BSB" v={bank.bsb}/><Row l="Account No." v={bank.accountNumber?`••••${bank.accountNumber.slice(-4)}`:""}/></Sec>
+      <Sec title="Subscription">{plan&&<div style={{background:T.faint,borderRadius:12,padding:14}}><div style={{display:"flex",justifyContent:"space-between"}}><p style={{fontWeight:700,color:T.ink}}>{plan.name} Plan</p><p style={{color:plan.colour,fontWeight:900,fontSize:18,fontFamily:"Georgia,serif"}}>${plan.price}/mo</p></div><p style={{color:T.muted,fontSize:12,marginTop:4}}>${plan.payout} payout per item sold</p></div>}</Sec>
+      <Sec title="Design Preferences">
+        <div style={{background:T.faint,borderRadius:12,padding:14}}>
+          {design.products?.length>0&&<p style={{color:T.muted,fontSize:12,marginBottom:4}}>Products: {design.products.join(", ")}</p>}
+          {design.colours&&<p style={{color:T.muted,fontSize:12,marginBottom:4}}>Colours: {design.colours}</p>}
+          {design.sizes?.length>0&&<p style={{color:T.muted,fontSize:12,marginBottom:4}}>Sizes: {design.sizes.join(", ")}</p>}
+          {design.placement?.length>0&&<p style={{color:T.muted,fontSize:12,marginBottom:4}}>Placement: {design.placement.join(", ")}</p>}
+          {design.notes&&<p style={{color:T.muted,fontSize:12,fontStyle:"italic"}}>"{design.notes}"</p>}
+        </div>
+      </Sec>
+      <div style={{background:T.greenBg,border:`1.5px solid ${T.green}`,borderRadius:14,padding:18,textAlign:"center"}}>
+        <p style={{fontSize:22,marginBottom:6}}>🎉</p>
+        <p style={{color:T.green,fontWeight:700,fontSize:14,marginBottom:4}}>Ready to submit</p>
+        <p style={{color:T.muted,fontSize:13,lineHeight:1.6}}>Your card will be charged ${plan?.price}/month starting today. Our team reviews your application within 1–2 business days.</p>
+      </div>
+    </div>
+  );
+}
+
+// ── SUCCESS ───────────────────────────────────────────────────────────────────
+function Success({brandName,planId}){
+  const plan=PLANS.find(p=>p.id===planId);
+  return(
+    <div style={{minHeight:"100vh",background:T.bg,display:"flex",alignItems:"center",justifyContent:"center",padding:24}}>
+      <div style={{maxWidth:440,width:"100%",textAlign:"center"}}>
+        <div style={{width:80,height:80,borderRadius:"50%",background:T.greenBg,border:`3px solid ${T.green}`,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 24px",fontSize:36}}>✓</div>
+        <h1 style={{fontFamily:"Georgia,serif",fontSize:30,fontWeight:700,color:T.ink,marginBottom:12}}>You're in!</h1>
+        <p style={{color:T.muted,fontSize:15,lineHeight:1.7,marginBottom:32}}>Welcome to Merch on Demand, <strong>{brandName}</strong>. You're on the <strong style={{color:plan?.colour}}>{plan?.name} Plan</strong>. Your subscription is active and our team will be in touch within 1–2 business days.</p>
+        <div style={{background:T.faint,border:`1.5px solid ${T.border}`,borderRadius:16,padding:20,textAlign:"left",marginBottom:24}}>
+          <p style={{fontWeight:700,color:T.ink,marginBottom:14}}>What happens next</p>
+          {[["1","Review","We review your brand and design preferences"],["2","Setup","Your collection goes live on the Merch on Demand store"],["3","Sell","Customers browse and order your products"],["4","Payout",`$${plan?.payout||10} per item sold, paid monthly to your bank`]].map(([n,t,d])=>(
+            <div key={n} style={{display:"flex",gap:12,marginBottom:14}}>
+              <div style={{width:28,height:28,borderRadius:"50%",background:T.ink,color:"white",display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,flexShrink:0}}>{n}</div>
+              <div><p style={{fontWeight:700,color:T.ink,fontSize:14}}>{t}</p><p style={{color:T.muted,fontSize:13}}>{d}</p></div>
+            </div>
+          ))}
+        </div>
+        <p style={{color:T.muted,fontSize:13}}>Questions? <span style={{color:T.accent,fontWeight:600}}>hello@merchantondemand.com.au</span></p>
+      </div>
+    </div>
+  );
+}
+
+// ── ROOT APP ──────────────────────────────────────────────────────────────────
+function App(){
+  const[step,setStep]=useState("brand");
+  const[submitted,setSubmitted]=useState(false);
+  const[submitting,setSubmitting]=useState(false);
+  const[submitErr,setSubmitErr]=useState("");
+  const[cardReady,setCardReady]=useState(false);
+  const cardRef=useRef(null);
+
+  const[brand,setBrand]=useState({brandName:"",tagline:"",category:""});
+  const[contact,setContact]=useState({firstName:"",lastName:"",email:"",phone:"",street:"",suburb:"",state:"",postcode:"",country:"Australia"});
+  const[bank,setBank]=useState({bank:"",accountName:"",bsb:"",accountNumber:""});
+  const[planId,setPlanId]=useState("starter");
+  const[design,setDesign]=useState({products:[],colours:"",sizes:[],placement:[],notes:""});
+
+  const stepIdx=STEPS.findIndex(s=>s.id===step);
+  const goNext=()=>{if(stepIdx<STEPS.length-1)setStep(STEPS[stepIdx+1].id);};
+  const goBack=()=>{if(stepIdx>0)setStep(STEPS[stepIdx-1].id);};
+
+  const canContinue=()=>{
+    if(step==="brand")   return !!brand.brandName;
+    if(step==="contact") return !!(contact.firstName&&contact.lastName&&contact.email&&contact.phone&&contact.street&&contact.suburb&&contact.state&&contact.postcode);
+    if(step==="bank")    return !!(bank.bank&&bank.accountName&&bank.bsb&&bank.accountNumber);
+    if(step==="plan")    return !!planId;
+    if(step==="payment") return cardReady;
+    return true;
+  };
+
+  const handleSubmit=async()=>{
+    setSubmitting(true);setSubmitErr("");
+    try{
+      const plan=PLANS.find(p=>p.id===planId);
+      const stripe=Stripe(STRIPE_PK);
+
+      // 1. Create Stripe payment method
+      const{paymentMethod,error}=await stripe.createPaymentMethod({
+        type:"card",card:cardRef.current,
+        billing_details:{email:contact.email,name:`${contact.firstName} ${contact.lastName}`},
+      });
+      if(error)throw new Error(error.message);
+
+      // 2. Create Stripe subscription via Railway proxy
+      const res=await fetch(PROXY+"/stripe/subscribe",{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({
+          email:contact.email,
+          name:`${contact.firstName} ${contact.lastName}`,
+          priceId:PRICE_IDS[planId],
+          paymentMethodId:paymentMethod.id,
+        }),
+      });
+      const subData=await res.json();
+      if(!res.ok)throw new Error(subData.error||"Payment failed");
+
+      // 3. Confirm if 3D Secure required
+      if(subData.clientSecret){
+        const{error:ce}=await stripe.confirmCardPayment(subData.clientSecret);
+        if(ce)throw new Error(ce.message);
+      }
+
+      // 4. Save vendor to Supabase
+      const{data:vendor,error:ve}=await sb.from("vendors").insert({
+        name:`${contact.firstName} ${contact.lastName}`,
+        email:contact.email.toLowerCase().trim(),
+        phone:contact.phone,
+        brand_name:brand.brandName,
+        store_name:brand.brandName,
+        address:[contact.street,contact.suburb,contact.state,contact.postcode,contact.country].filter(Boolean).join(", "),
+        bank:bank.bank,
+        bsb:bank.bsb,
+        account_number:bank.accountNumber,
+        account_name:bank.accountName,
+        plan:planId,
+        payout_rate:plan.payout,
+        status:"pending",
+        notes:JSON.stringify({
+          tagline:brand.tagline,
+          category:brand.category,
+          design,
+          stripeCustomerId:subData.customerId,
+        }),
+      }).select().single();
+      if(ve)throw new Error(ve.message);
+
+      // 5. Save subscription to Supabase
+      await sb.from("subscriptions").insert({
+        vendor_id:vendor.id,
+        plan:planId,
+        price:plan.price,
+        payout_rate:plan.payout,
+        status:"active",
+        stripe_subscription_id:subData.subscriptionId,
+      });
+
+      setSubmitted(true);
+    }catch(e){
+      setSubmitErr(e.message);
+    }finally{
+      setSubmitting(false);
+    }
+  };
+
+  if(submitted)return <Success brandName={brand.brandName} planId={planId}/>;
+
+  return(
+    <>
+      <style>{`* { box-sizing: border-box; margin: 0; padding: 0; } body { background: ${T.bg}; } ::-webkit-scrollbar { width: 4px; } ::-webkit-scrollbar-thumb { background: ${T.border}; border-radius: 2px; } select option { background: white; color: ${T.ink}; }`}</style>
+      <div style={{background:T.bg,minHeight:"100vh",fontFamily:"'Segoe UI',sans-serif"}}>
+
+        {/* Header */}
+        <div style={{background:T.surface,borderBottom:`1.5px solid ${T.border}`,padding:"14px 24px",display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:50}}>
+          <div>
+            <p style={{fontFamily:"Georgia,serif",fontWeight:900,fontSize:17,color:T.ink}}>Merch on Demand</p>
+            <p style={{color:T.muted,fontSize:10,fontWeight:500}}>Vendor Application</p>
+          </div>
+          <div style={{background:T.accentBg,border:`1.5px solid ${T.accentBorder}`,borderRadius:99,padding:"4px 14px"}}>
+            <span style={{color:T.accent,fontSize:11,fontWeight:700}}>Step {stepIdx+1} of {STEPS.length}</span>
+          </div>
+        </div>
+
+        {/* Progress */}
+        <div style={{background:T.surface,borderBottom:`1.5px solid ${T.border}`,padding:"14px 24px 12px"}}>
+          <ProgressBar step={step}/>
+        </div>
+
+        {/* Content */}
+        <div style={{maxWidth:600,margin:"0 auto",padding:"28px 24px 80px"}}>
+          {step==="brand"   &&<StepBrand   data={brand}   setData={setBrand}/>}
+          {step==="contact" &&<StepContact data={contact} setData={setContact}/>}
+          {step==="bank"    &&<StepBank    data={bank}    setData={setBank}/>}
+          {step==="plan"    &&<StepPlan    selectedPlan={planId} onSelect={setPlanId}/>}
+          {step==="payment" &&<StepPayment plan={planId} cardRef={cardRef} setCardReady={setCardReady}/>}
+          {step==="design"  &&<StepDesign  data={design}  setData={setDesign}/>}
+          {step==="review"  &&<StepReview  brand={brand} contact={contact} bank={bank} planId={planId} design={design}/>}
+
+          {submitErr&&<div style={{background:"#FEE2E2",border:"1px solid #FCA5A5",borderRadius:10,padding:12,marginTop:16}}><p style={{color:"#991B1B",fontSize:13}}>⚠ {submitErr}</p></div>}
+
+          {/* Nav buttons */}
+          <div style={{display:"flex",gap:12,marginTop:30}}>
+            {stepIdx>0&&<Btn outline onClick={goBack}>← Back</Btn>}
+            {step==="review"
+              ?<Btn onClick={handleSubmit} disabled={submitting} isLast>{submitting?<Spin/>:"✓ Submit & Pay"}</Btn>
+              :<Btn onClick={goNext} disabled={!canContinue()}>Continue →</Btn>
+            }
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>

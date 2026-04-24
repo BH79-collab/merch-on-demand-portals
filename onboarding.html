@@ -21,34 +21,35 @@ select option{background:white;color:#1A1714}
 </style>
 </head>
 <body>
-<div id="stripe-card-el" style="display:none;position:absolute;left:-9999px"></div>
+<div id="sc-wrap"></div>
 <div id="root"></div>
 
+<style>
+#sc-wrap{position:fixed;left:-9999px;top:-9999px;z-index:1}
+#sc-wrap.vis{position:static;left:auto;top:auto;padding:12px 14px;background:#F0EDE8;border:1.5px solid #E8E4DC;border-radius:10px}
+#sc-wrap.vis.foc{border-color:#D4521A}
+</style>
 <script>
-// ── Stripe — mounted once in plain JS, never touches React ──────────────────
-var _stripe=null, _card=null, _cardReady=false;
+var _s=null,_c=null,_r=false;
 window.addEventListener('load',function(){
-  _stripe=Stripe('pk_live_51O2OzhLgoqGtM7YGmzxSIZM6XNNfgJGpfIQYYcoT7JnFneionzk0gFfn0S8AiqvJZDhGI0zj2qQ28FvPF2Z0fFs7006Y2B3SXR');
-  var els=_stripe.elements();
-  _card=els.create('card',{style:{base:{color:'#1A1714',fontFamily:'Segoe UI,sans-serif',fontSize:'15px','::placeholder':{color:'#8C8580'}},invalid:{color:'#D4521A'}}});
-  _card.mount('#stripe-card-el');
-  _card.on('change',function(e){
-    _cardReady=!e.empty&&!e.error;
-    window.dispatchEvent(new CustomEvent('stripeready',{detail:_cardReady}));
-  });
+  _s=Stripe('pk_live_51O2OzhLgoqGtM7YGmzxSIZM6XNNfgJGpfIQYYcoT7JnFneionzk0gFfn0S8AiqvJZDhGI0zj2qQ28FvPF2Z0fFs7006Y2B3SXR');
+  _c=_s.elements().create('card',{style:{base:{color:'#1A1714',fontFamily:'Segoe UI,sans-serif',fontSize:'15px','::placeholder':{color:'#8C8580'}},invalid:{color:'#D4521A'}}});
+  _c.mount('#sc-wrap');
+  _c.on('change',function(e){_r=!e.empty&&!e.error;window.dispatchEvent(new CustomEvent('stripeready',{detail:_r}));});
+  _c.on('focus',function(){document.getElementById('sc-wrap').classList.add('foc');});
+  _c.on('blur',function(){document.getElementById('sc-wrap').classList.remove('foc');});
 });
-window.mountStripeCard=function(targetId){
-  var el=document.getElementById(targetId);
-  var card=document.getElementById('stripe-card-el');
-  if(el&&card){el.appendChild(card);card.style.display='block';card.style.position='static';card.style.left='auto';}
+window.showStripe=function(){
+  var w=document.getElementById('sc-wrap');
+  var c=document.getElementById('sc-container');
+  if(w&&c){c.appendChild(w);w.classList.add('vis');}
 };
-window.unmountStripeCard=function(){
-  var card=document.getElementById('stripe-card-el');
-  if(card){document.body.appendChild(card);card.style.display='none';card.style.position='absolute';card.style.left='-9999px';}
+window.hideStripe=function(){
+  var w=document.getElementById('sc-wrap');
+  if(w){document.body.appendChild(w);w.classList.remove('vis');}
 };
-window.getStripe=function(){return _stripe;};
-window.getCard=function(){return _card;};
-window.isCardReady=function(){return _cardReady;};
+window.getStripe=function(){return _s;};
+window.getCard=function(){return _c;};
 </script>
 
 <script type="text/babel">
@@ -444,9 +445,8 @@ function StepPlan({selectedPlan,onSelect}){
 function StepPayment({plan}){
   const selectedPlan=PLANS.find(p=>p.id===plan);
   useEffect(()=>{
-    // Move the persistent Stripe card div into this step
-    setTimeout(()=>window.mountStripeCard&&window.mountStripeCard("stripe-slot"),100);
-    return()=>window.unmountStripeCard&&window.unmountStripeCard();
+    window.showStripe&&window.showStripe();
+    return()=>window.hideStripe&&window.hideStripe();
   },[]);
   return(
     <div>
@@ -454,7 +454,7 @@ function StepPayment({plan}){
       {selectedPlan&&(<div style={{background:T.faint,border:`1.5px solid ${T.border}`,borderRadius:14,padding:16,marginBottom:24}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}><div><p style={{color:T.ink,fontWeight:700,fontSize:15}}>{selectedPlan.name} Plan</p><p style={{color:T.muted,fontSize:12,marginTop:2}}>${selectedPlan.payout} per item · billed monthly</p></div><div style={{textAlign:"right"}}><p style={{color:selectedPlan.col,fontFamily:"Georgia,serif",fontSize:22,fontWeight:900}}>${selectedPlan.price}</p><p style={{color:T.muted,fontSize:10}}>/month</p></div></div></div>)}
       <div style={{background:T.surface,border:`1.5px solid ${T.border}`,borderRadius:16,padding:20,marginBottom:16}}>
         <p style={{fontFamily:"Georgia,serif",fontSize:15,fontWeight:700,color:T.ink,marginBottom:16}}>Card Details</p>
-        <div id="stripe-slot" style={{minHeight:46}}/>
+        <div id="sc-container" style={{minHeight:46}}/>
         <div style={{display:"flex",alignItems:"center",gap:8,marginTop:14,padding:"10px 12px",background:T.greenBg,border:`1px solid ${T.green}`,borderRadius:10}}>
           <span style={{fontSize:16}}>🔒</span>
           <p style={{color:T.green,fontSize:11,fontWeight:600}}>Secured by Stripe · 256-bit SSL</p>

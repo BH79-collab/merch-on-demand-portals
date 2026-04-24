@@ -279,48 +279,327 @@ function StepPayment({plan,cardRef,setCardReady}){
   );
 }
 
-// ── STEP: DESIGN (simplified) ─────────────────────────────────────────────────
-function StepDesign({data,setData}){
-  const s=k=>v=>setData(d=>({...d,[k]:v}));
+// ── SHOPIFY PRODUCT CATALOGUE ─────────────────────────────────────────────────
+const AS_COLOURS = [
+  {name:"White",hex:"#FFFFFF"},{name:"Black",hex:"#1A1714"},{name:"Navy",hex:"#1B2A4A"},
+  {name:"Forest",hex:"#2D4A35"},{name:"Slate",hex:"#6B7A8D"},{name:"Bone",hex:"#E8DFD0"},
+  {name:"Ash",hex:"#C8C4BC"},{name:"Clay",hex:"#B5734A"},{name:"Dusty Blue",hex:"#7EA3B8"},
+  {name:"Washed Black",hex:"#3A3735"},{name:"Mauve",hex:"#B8849A"},
+  {name:"Military Green",hex:"#5C6B4A"},{name:"Maroon",hex:"#6B2035"},
+  {name:"Red",hex:"#C0392B"},{name:"Royal",hex:"#2A5FA5"},
+];
+const AS_SIZES = ["XS","S","M","L","XL","2XL","3XL","4XL","5XL"];
+
+// ── LOGO UPLOAD SLOT ──────────────────────────────────────────────────────────
+function LogoSlot({label,logo,onSet,onClear,hint}){
+  const ref=useRef();
+  const[drag,setDrag]=useState(false);
+  const handle=async(file)=>{
+    if(!file?.type.startsWith("image/"))return;
+    const r=new FileReader();
+    r.onload=e=>onSet({name:file.name,url:e.target.result});
+    r.readAsDataURL(file);
+  };
   return(
-    <div>
-      <StepHeader title="Product Design" subtitle="Tell us what products you want and how you'd like your logo placed. Our team will handle the rest."/>
-      <div style={{marginBottom:18}}>
-        <Label>Products you want to offer</Label>
-        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-          {["T-Shirt","Hoodie","Cap"].map(p=>{
-            const sel=(data.products||[]).includes(p);
-            return <button key={p} onClick={()=>setData(d=>({...d,products:sel?(d.products||[]).filter(x=>x!==p):[...(d.products||[]),p]}))} style={{padding:"9px 18px",background:sel?T.ink:T.faint,border:`1.5px solid ${sel?T.ink:T.border}`,borderRadius:10,fontSize:13,fontWeight:700,color:sel?"white":T.muted,cursor:"pointer",fontFamily:"inherit"}}>{p}</button>;
+    <div style={{flex:1}}>
+      <Label>{label}</Label>
+      {hint&&<p style={{color:T.muted,fontSize:10,marginBottom:8}}>{hint}</p>}
+      {logo?(
+        <div style={{position:"relative",border:`1.5px solid ${T.border}`,borderRadius:12,background:"#F9F9F9",aspectRatio:"1",overflow:"hidden"}}>
+          <img src={logo.url} alt="" style={{width:"100%",height:"100%",objectFit:"contain",padding:10}}/>
+          <button onClick={onClear} style={{position:"absolute",top:6,right:6,width:24,height:24,borderRadius:"50%",background:T.ink,border:"none",color:"white",fontSize:12,cursor:"pointer"}}>✕</button>
+          <div style={{position:"absolute",bottom:0,left:0,right:0,background:"rgba(0,0,0,0.5)",padding:"3px 8px"}}>
+            <p style={{color:"white",fontSize:9,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{logo.name}</p>
+          </div>
+        </div>
+      ):(
+        <div onClick={()=>ref.current?.click()}
+          onDragOver={e=>{e.preventDefault();setDrag(true);}}
+          onDragLeave={()=>setDrag(false)}
+          onDrop={e=>{e.preventDefault();setDrag(false);handle(e.dataTransfer.files[0]);}}
+          style={{border:`2px dashed ${drag?T.accent:T.border}`,borderRadius:12,aspectRatio:"1",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:6,cursor:"pointer",background:drag?T.accentBg:T.faint}}>
+          <span style={{fontSize:28}}>📁</span>
+          <p style={{color:T.muted,fontSize:11,fontWeight:600,textAlign:"center",padding:"0 10px"}}>Drop or tap</p>
+          <p style={{color:T.muted,fontSize:9}}>PNG · SVG · JPG</p>
+          <input ref={ref} type="file" accept="image/*" style={{display:"none"}} onChange={e=>handle(e.target.files[0])}/>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── GARMENT CANVAS ────────────────────────────────────────────────────────────
+function GarmentCanvas({side,colour,logo,placement,onPlacementChange}){
+  const containerRef=useRef(null);
+  const isDragging=useRef(false);
+  const isResizing=useRef(false);
+  const dragStart=useRef({});
+  const resizeStart=useRef({});
+
+  const pz = side==="front"
+    ? {x:62,y:55,w:76,h:90}
+    : {x:62,y:50,w:76,h:90};
+
+  const pl = placement || {x:pz.x+pz.w*0.15, y:pz.y+pz.h*0.15, w:pz.w*0.7, h:pz.h*0.7};
+
+  const isLight=["#FFFFFF","#E8DFD0","#C8C4BC"].includes(colour);
+  const stroke=isLight?"#CCCCCC":"transparent";
+
+  const getScale=()=>{
+    if(!containerRef.current)return{sx:1,sy:1};
+    const{width,height}=containerRef.current.getBoundingClientRect();
+    return{sx:width/200,sy:height/220};
+  };
+
+  const onMouseDownDrag=(e)=>{
+    e.preventDefault();e.stopPropagation();
+    isDragging.current=true;
+    const{sx,sy}=getScale();
+    dragStart.current={mx:e.clientX,my:e.clientY,lx:pl.x*sx,ly:pl.y*sy};
+    const move=(ev)=>{
+      if(!isDragging.current)return;
+      const{sx:sx2,sy:sy2}=getScale();
+      let nx=(dragStart.current.lx+(ev.clientX-dragStart.current.mx))/sx2;
+      let ny=(dragStart.current.ly+(ev.clientY-dragStart.current.my))/sy2;
+      nx=Math.max(pz.x,Math.min(pz.x+pz.w-pl.w,nx));
+      ny=Math.max(pz.y,Math.min(pz.y+pz.h-pl.h,ny));
+      onPlacementChange({...pl,x:nx,y:ny});
+    };
+    const up=()=>{isDragging.current=false;window.removeEventListener("mousemove",move);window.removeEventListener("mouseup",up);};
+    window.addEventListener("mousemove",move);window.addEventListener("mouseup",up);
+  };
+
+  const onTouchDrag=(e)=>{
+    e.preventDefault();e.stopPropagation();
+    isDragging.current=true;
+    const t=e.touches[0];
+    const{sx,sy}=getScale();
+    dragStart.current={mx:t.clientX,my:t.clientY,lx:pl.x*sx,ly:pl.y*sy};
+    const move=(ev)=>{
+      const t2=ev.touches[0];
+      const{sx:sx2,sy:sy2}=getScale();
+      let nx=(dragStart.current.lx+(t2.clientX-dragStart.current.mx))/sx2;
+      let ny=(dragStart.current.ly+(t2.clientY-dragStart.current.my))/sy2;
+      nx=Math.max(pz.x,Math.min(pz.x+pz.w-pl.w,nx));
+      ny=Math.max(pz.y,Math.min(pz.y+pz.h-pl.h,ny));
+      onPlacementChange({...pl,x:nx,y:ny});
+    };
+    const up=()=>{isDragging.current=false;window.removeEventListener("touchmove",move);window.removeEventListener("touchend",up);};
+    window.addEventListener("touchmove",move,{passive:false});window.addEventListener("touchend",up);
+  };
+
+  const onMouseDownResize=(e)=>{
+    e.preventDefault();e.stopPropagation();
+    isResizing.current=true;
+    const{sx}=getScale();
+    resizeStart.current={mx:e.clientX,lw:pl.w*sx};
+    const move=(ev)=>{
+      if(!isResizing.current)return;
+      const{sx:sx2}=getScale();
+      let nw=(resizeStart.current.lw+(ev.clientX-resizeStart.current.mx))/sx2;
+      nw=Math.max(10,Math.min(pz.x+pz.w-pl.x,nw));
+      const nh=nw*(pl.h/pl.w);
+      onPlacementChange({...pl,w:nw,h:Math.min(nh,pz.y+pz.h-pl.y)});
+    };
+    const up=()=>{isResizing.current=false;window.removeEventListener("mousemove",move);window.removeEventListener("mouseup",up);};
+    window.addEventListener("mousemove",move);window.addEventListener("mouseup",up);
+  };
+
+  const onTouchResize=(e)=>{
+    e.preventDefault();e.stopPropagation();
+    isResizing.current=true;
+    const t=e.touches[0];
+    const{sx}=getScale();
+    resizeStart.current={mx:t.clientX,lw:pl.w*sx};
+    const move=(ev)=>{
+      const t2=ev.touches[0];
+      const{sx:sx2}=getScale();
+      let nw=(resizeStart.current.lw+(t2.clientX-resizeStart.current.mx))/sx2;
+      nw=Math.max(10,Math.min(pz.x+pz.w-pl.x,nw));
+      const nh=nw*(pl.h/pl.w);
+      onPlacementChange({...pl,w:nw,h:Math.min(nh,pz.y+pz.h-pl.y)});
+    };
+    const up=()=>{isResizing.current=false;window.removeEventListener("touchmove",move);window.removeEventListener("touchend",up);};
+    window.addEventListener("touchmove",move,{passive:false});window.addEventListener("touchend",up);
+  };
+
+  const bodyPath=side==="front"
+    ?"M55,20 L30,45 L5,38 L18,80 L40,75 L40,205 L160,205 L160,75 L182,80 L195,38 L170,45 L145,20 C140,28 130,35 100,35 C70,35 60,28 55,20 Z"
+    :"M55,20 L30,45 L5,38 L18,80 L40,75 L40,205 L160,205 L160,75 L182,80 L195,38 L170,45 L145,20 C140,28 130,35 100,35 C70,35 60,28 55,20 Z";
+
+  return(
+    <div style={{position:"relative",userSelect:"none"}} ref={containerRef}>
+      <svg viewBox="0 0 200 220" style={{width:"100%",display:"block"}} xmlns="http://www.w3.org/2000/svg">
+        <ellipse cx="100" cy="215" rx="70" ry="6" fill="rgba(0,0,0,0.06)"/>
+        <path d={bodyPath} fill={colour} stroke={stroke} strokeWidth="1.5"/>
+        <path d="M55,20 C60,28 70,35 100,35 C130,35 140,28 145,20" fill="none" stroke={stroke||"rgba(0,0,0,0.1)"} strokeWidth="2"/>
+        <line x1="40" y1="75" x2="40" y2="205" stroke="rgba(0,0,0,0.06)" strokeWidth="1"/>
+        <line x1="160" y1="75" x2="160" y2="205" stroke="rgba(0,0,0,0.06)" strokeWidth="1"/>
+
+        {/* Print zone */}
+        <rect x={pz.x} y={pz.y} width={pz.w} height={pz.h}
+          fill="rgba(212,82,26,0.04)" stroke="rgba(212,82,26,0.3)" strokeWidth="1" strokeDasharray="5,3" rx="2"/>
+
+        {logo?(
+          <>
+            <foreignObject x={pl.x} y={pl.y} width={pl.w} height={pl.h}
+              style={{cursor:"move",overflow:"visible"}}
+              onMouseDown={onMouseDownDrag} onTouchStart={onTouchDrag}>
+              <div xmlns="http://www.w3.org/1999/xhtml" style={{width:"100%",height:"100%",display:"flex",alignItems:"center",justifyContent:"center"}}>
+                <img src={logo.url} alt="" style={{maxWidth:"100%",maxHeight:"100%",objectFit:"contain",pointerEvents:"none"}}/>
+              </div>
+            </foreignObject>
+            <rect x={pl.x} y={pl.y} width={pl.w} height={pl.h} fill="none" stroke={T.accent} strokeWidth="1.5" strokeDasharray="4,2" rx="2" style={{pointerEvents:"none"}}/>
+            <circle cx={pl.x+5} cy={pl.y+5} r="5" fill={T.accent} style={{pointerEvents:"none"}}/>
+            <text x={pl.x+5} y={pl.y+9} textAnchor="middle" fontSize="6" fill="white" style={{pointerEvents:"none"}}>✥</text>
+            <rect x={pl.x+pl.w-8} y={pl.y+pl.h-8} width="10" height="10" fill={T.accent} rx="2"
+              style={{cursor:"se-resize"}} onMouseDown={onMouseDownResize} onTouchStart={onTouchResize}/>
+            <text x={pl.x+pl.w-3} y={pl.y+pl.h-1} fontSize="7" fill="white" style={{pointerEvents:"none"}}>↔</text>
+            <text x={pz.x+pz.w/2} y={pz.y-3} textAnchor="middle" fontSize="7" fill="rgba(212,82,26,0.7)" fontFamily="Segoe UI,sans-serif">DTF PRINT ZONE</text>
+          </>
+        ):(
+          <text x={pz.x+pz.w/2} y={pz.y+pz.h/2+4} textAnchor="middle" fontSize="9" fill="rgba(212,82,26,0.5)" fontFamily="Segoe UI,sans-serif" fontWeight="600">
+            Upload logo to place here
+          </text>
+        )}
+        <text x="100" y="218" textAnchor="middle" fontSize="9" fill={T.muted} fontFamily="Segoe UI,sans-serif" fontWeight="600" letterSpacing="0.08em">
+          {side==="front"?"FRONT":"BACK"}
+        </text>
+      </svg>
+    </div>
+  );
+}
+
+// ── STEP: DESIGN (full interactive) ──────────────────────────────────────────
+function StepDesign({data,setData}){
+  const[activeProduct,setActiveProduct]=useState("tee");
+
+  const getD=pid=>data.designs?.[pid]||{frontPlacement:null,backPlacement:null,colour:"#FFFFFF",sizes:[],notes:""};
+  const updD=(pid,patch)=>setData(d=>({...d,designs:{...(d.designs||{}),[pid]:{...getD(pid),...patch}}}));
+  const cd=getD(activeProduct);
+
+  const toggleSize=sz=>{
+    const sizes=cd.sizes||[];
+    updD(activeProduct,{sizes:sizes.includes(sz)?sizes.filter(s=>s!==sz):[...sizes,sz]});
+  };
+
+  const PRODUCTS=[{id:"tee",label:"T-Shirt"},{id:"hoodie",label:"Hoodie"},{id:"cap",label:"Cap"}];
+  const curColour=AS_COLOURS.find(c=>c.hex===cd.colour)||AS_COLOURS[0];
+
+  return(
+    <div style={{display:"flex",flexDirection:"column",gap:22}}>
+      <StepHeader title="Product Design" subtitle="Upload logos, position them on front and back, choose colours and sizes."/>
+
+      {/* Product tabs */}
+      <div>
+        <Label>Product Type</Label>
+        <div style={{display:"flex",gap:8}}>
+          {PRODUCTS.map(p=>{
+            const active=activeProduct===p.id;
+            return <button key={p.id} onClick={()=>setActiveProduct(p.id)} style={{padding:"9px 18px",background:active?T.ink:T.faint,border:`1.5px solid ${active?T.ink:T.border}`,borderRadius:10,cursor:"pointer",fontFamily:"inherit",fontSize:13,fontWeight:700,color:active?"white":T.muted}}>{p.label}</button>;
           })}
         </div>
       </div>
-      <div style={{marginBottom:18}}>
-        <Label>Garment Colours</Label>
-        <Inp value={data.colours} onChange={s("colours")} placeholder="e.g. Black, White, Navy, Forest" hint="List the colours you want. We'll confirm availability."/>
-      </div>
-      <div style={{marginBottom:18}}>
-        <Label>Sizes to offer</Label>
-        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-          {["XS","S","M","L","XL","2XL","3XL"].map(sz=>{
-            const sel=(data.sizes||[]).includes(sz);
-            return <button key={sz} onClick={()=>setData(d=>({...d,sizes:sel?(d.sizes||[]).filter(x=>x!==sz):[...(d.sizes||[]),sz]}))} style={{padding:"7px 14px",background:sel?T.ink:T.faint,border:`1.5px solid ${sel?T.ink:T.border}`,borderRadius:8,fontSize:12,fontWeight:700,color:sel?"white":T.muted,cursor:"pointer",fontFamily:"inherit"}}>{sz}</button>;
-          })}
+
+      {/* Logo uploads */}
+      <div style={{background:T.surface,border:`1.5px solid ${T.border}`,borderRadius:14,padding:18}}>
+        <p style={{fontFamily:"Georgia,serif",fontSize:15,fontWeight:700,color:T.ink,marginBottom:4}}>Upload Logos</p>
+        <p style={{color:T.muted,fontSize:12,marginBottom:16}}>Upload separate logos for front and back — PNG with transparent background works best.</p>
+        <div style={{display:"flex",gap:14}}>
+          <LogoSlot label="Front Logo"
+            logo={data.logos?.front||null}
+            onSet={l=>setData(d=>({...d,logos:{...(d.logos||{}),front:l}}))}
+            onClear={()=>setData(d=>({...d,logos:{...(d.logos||{}),front:null}}))}
+            hint="Drag to reposition after upload"/>
+          {activeProduct!=="cap"&&(
+            <LogoSlot label="Back Logo"
+              logo={data.logos?.back||null}
+              onSet={l=>setData(d=>({...d,logos:{...(d.logos||{}),back:l}}))}
+              onClear={()=>setData(d=>({...d,logos:{...(d.logos||{}),back:null}}))}
+              hint="Leave empty for blank back"/>
+          )}
         </div>
       </div>
-      <div style={{marginBottom:18}}>
-        <Label>Logo placement preference</Label>
-        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-          {["Front chest","Back centre","Front & back","Left chest","Full front"].map(p=>{
-            const sel=(data.placement||[]).includes(p);
-            return <button key={p} onClick={()=>setData(d=>({...d,placement:sel?(d.placement||[]).filter(x=>x!==p):[...(d.placement||[]),p]}))} style={{padding:"7px 14px",background:sel?T.ink:T.faint,border:`1.5px solid ${sel?T.ink:T.border}`,borderRadius:8,fontSize:12,fontWeight:700,color:sel?"white":T.muted,cursor:"pointer",fontFamily:"inherit"}}>{p}</button>;
-          })}
+
+      {/* Canvas */}
+      <div style={{background:T.faint,border:`1.5px solid ${T.border}`,borderRadius:14,padding:16}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+          <div>
+            <p style={{fontFamily:"Georgia,serif",fontSize:15,fontWeight:700,color:T.ink}}>Design Preview</p>
+            <p style={{color:T.muted,fontSize:11,marginTop:2}}>Drag logo to reposition · Drag ↔ corner to resize</p>
+          </div>
+          <span style={{background:T.accentBg,border:`1.5px solid ${T.accentBorder}`,borderRadius:8,padding:"4px 10px",fontSize:10,fontWeight:700,color:T.accent}}>DTF Print</span>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:activeProduct!=="cap"?"1fr 1fr":"1fr",gap:12}}>
+          <div style={{background:T.surface,border:`1.5px solid ${T.border}`,borderRadius:12,padding:12}}>
+            <GarmentCanvas side="front" colour={cd.colour}
+              logo={data.logos?.front||null}
+              placement={cd.frontPlacement}
+              onPlacementChange={p=>updD(activeProduct,{frontPlacement:p})}/>
+          </div>
+          {activeProduct!=="cap"&&(
+            <div style={{background:T.surface,border:`1.5px solid ${T.border}`,borderRadius:12,padding:12}}>
+              <GarmentCanvas side="back" colour={cd.colour}
+                logo={data.logos?.back||null}
+                placement={cd.backPlacement}
+                onPlacementChange={p=>updD(activeProduct,{backPlacement:p})}/>
+            </div>
+          )}
+        </div>
+        {(data.logos?.front||data.logos?.back)&&(
+          <div style={{marginTop:12,padding:"10px 12px",background:T.accentBg,borderRadius:10,display:"flex",gap:10}}>
+            <span style={{fontSize:16}}>💡</span>
+            <div>
+              <p style={{color:T.accent,fontSize:11,fontWeight:700,marginBottom:2}}>How to position</p>
+              <p style={{color:T.muted,fontSize:11,lineHeight:1.5}}>Click and drag the logo to move. Drag the <strong>orange ↔ corner</strong> to resize. Stay within the dashed print zone.</p>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Colour picker */}
+      <div style={{background:T.surface,border:`1.5px solid ${T.border}`,borderRadius:14,padding:18}}>
+        <p style={{fontFamily:"Georgia,serif",fontSize:15,fontWeight:700,color:T.ink,marginBottom:16}}>Colours &amp; Sizes</p>
+
+        {/* AS Colour Staple Tee badge */}
+        {activeProduct==="tee"&&(
+          <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 12px",background:T.greenBg,border:`1.5px solid ${T.green}`,borderRadius:10,marginBottom:16}}>
+            <span>🔗</span>
+            <div>
+              <p style={{color:T.green,fontSize:11,fontWeight:700}}>Shopify #5001 — Mens AS Colour Staple Tee</p>
+              <p style={{color:T.muted,fontSize:10}}>Premium 180gsm cotton · DTF print area: 36×42cm</p>
+            </div>
+          </div>
+        )}
+
+        <div style={{marginBottom:18}}>
+          <Label>Garment Colour — <span style={{color:T.accent}}>{curColour.name}</span></Label>
+          <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+            {AS_COLOURS.map(c=>(
+              <button key={c.hex} onClick={()=>updD(activeProduct,{colour:c.hex})} title={c.name}
+                style={{width:34,height:34,borderRadius:"50%",background:c.hex,border:`3px solid ${cd.colour===c.hex?T.accent:T.border}`,cursor:"pointer",boxShadow:cd.colour===c.hex?`0 0 0 2px white, 0 0 0 4px ${T.accent}`:"0 1px 3px rgba(0,0,0,0.15)",transition:"all 0.15s"}}/>
+            ))}
+          </div>
+        </div>
+
+        <div style={{marginBottom:16}}>
+          <Label>Sizes to offer</Label>
+          <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+            {AS_SIZES.map(sz=>{
+              const sel=(cd.sizes||[]).includes(sz);
+              return <button key={sz} onClick={()=>toggleSize(sz)} style={{padding:"7px 13px",background:sel?T.ink:T.faint,border:`1.5px solid ${sel?T.ink:T.border}`,borderRadius:8,fontSize:12,fontWeight:700,color:sel?"white":T.muted,cursor:"pointer",fontFamily:"inherit"}}>{sz}</button>;
+            })}
+          </div>
+          <p style={{color:T.muted,fontSize:11,marginTop:6}}>Select all sizes you want to offer.</p>
         </div>
       </div>
+
+      {/* Notes */}
       <div>
         <Label>Design Notes</Label>
-        <textarea value={data.notes||""} onChange={e=>setData(d=>({...d,notes:e.target.value}))}
-          placeholder="Any special instructions — logo size, colours, placement details, anything our team should know..."
-          rows={4} style={{width:"100%",padding:"12px 14px",background:T.surface,border:`1.5px solid ${T.border}`,borderRadius:10,fontSize:13,color:T.ink,fontFamily:"inherit",outline:"none",resize:"vertical",boxSizing:"border-box",lineHeight:1.6}}
+        <textarea value={cd.notes||""} onChange={e=>updD(activeProduct,{notes:e.target.value})}
+          placeholder="Any special instructions — logo size, placement details, colour matching, anything our team should know..."
+          rows={3} style={{width:"100%",padding:"12px 14px",background:T.surface,border:`1.5px solid ${T.border}`,borderRadius:10,fontSize:13,color:T.ink,fontFamily:"inherit",outline:"none",resize:"vertical",boxSizing:"border-box",lineHeight:1.6}}
           onFocus={e=>e.target.style.borderColor=T.accent} onBlur={e=>e.target.style.borderColor=T.border}/>
       </div>
     </div>

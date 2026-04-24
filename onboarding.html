@@ -21,6 +21,7 @@ select option{background:white;color:#1A1714}
 </head>
 <body>
 <div id="root"></div>
+<div id="stripe-card-always" style="display:none;padding:12px 14px;background:#F0EDE8;border:1.5px solid #E8E4DC;border-radius:10px;min-height:44px;margin-bottom:0"></div>
 <script type="text/babel">
 
 // ── Config ────────────────────────────────────────────────────────────────────
@@ -254,7 +255,7 @@ function StepPayment({plan,cardMountRef}){
       )}
       <div style={{background:T.surface,border:`1.5px solid ${T.border}`,borderRadius:16,padding:20,marginBottom:16}}>
         <p style={{fontFamily:"Georgia,serif",fontSize:15,fontWeight:700,color:T.ink,marginBottom:16}}>Card Details</p>
-        <div id="stripe-card-mount" ref={cardMountRef} style={{padding:"12px 14px",background:T.faint,border:`1.5px solid ${T.border}`,borderRadius:10,minHeight:44}}/>
+        <div id="stripe-placeholder" style={{minHeight:50}}/>
         <div style={{display:"flex",alignItems:"center",gap:8,marginTop:14,padding:"10px 12px",background:T.greenBg,border:`1px solid ${T.green}`,borderRadius:10}}>
           <span style={{fontSize:16}}>🔒</span>
           <p style={{color:T.green,fontSize:11,fontWeight:600}}>Secured by Stripe · 256-bit SSL</p>
@@ -658,28 +659,36 @@ function App(){
   const cardMountRef=useRef(null);
   const stripeElements=useRef(null);
 
-  // Mount Stripe card when payment step becomes active
+  // Mount Stripe card once into a div that lives OUTSIDE React
   useEffect(()=>{
-    if(step!=="payment")return;
-    // Small delay to ensure DOM is rendered
     const timer=setTimeout(()=>{
-      const mountEl=document.getElementById("stripe-card-mount");
+      if(cardRef.current)return;
+      const mountEl=document.getElementById("stripe-card-always");
       if(!mountEl)return;
-      // Destroy previous instance if exists
-      if(cardRef.current){
-        try{cardRef.current.destroy();}catch(e){}
-        cardRef.current=null;
-        setCardReady(false);
-      }
-      const elements=getStripe().elements();
-      const card=elements.create("card",{
+      const card=getStripe().elements().create("card",{
         style:{base:{color:"#1A1714",fontFamily:"Segoe UI,sans-serif",fontSize:"15px","::placeholder":{color:"#8C8580"}},invalid:{color:"#D4521A"}},
       });
       card.mount(mountEl);
       card.on("change",e=>setCardReady(!e.empty&&!e.error));
       cardRef.current=card;
-    },200);
+    },500);
     return()=>clearTimeout(timer);
+  },[]);
+
+  // Move and show/hide the Stripe div based on current step
+  useEffect(()=>{
+    const stripeDiv=document.getElementById("stripe-card-always");
+    if(!stripeDiv)return;
+    if(step==="payment"){
+      const placeholder=document.getElementById("stripe-placeholder");
+      if(placeholder){
+        placeholder.appendChild(stripeDiv);
+        stripeDiv.style.display="block";
+      }
+    } else {
+      document.body.appendChild(stripeDiv);
+      stripeDiv.style.display="none";
+    }
   },[step]);
 
   const[brand,setBrand]=useState({brandName:"",tagline:"",category:""});
@@ -819,6 +828,8 @@ function App(){
           </div>
         </div>
       </div>
+
+
     </>
   );
 }

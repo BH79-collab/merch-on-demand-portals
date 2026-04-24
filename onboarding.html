@@ -238,20 +238,26 @@ function StepPlan({selectedPlan,onSelect}){
 }
 
 // ── STEP: PAYMENT (real Stripe Elements) ──────────────────────────────────────
-function StepPayment({plan,cardRef,setCardReady}){
+function StepPayment({plan,cardRef,setCardReady,cardMountRef}){
   const selectedPlan=PLANS.find(p=>p.id===plan);
-  const mountRef=useRef(null);
 
   useEffect(()=>{
-    if(!mountRef.current)return;
+    if(!cardMountRef.current)return;
+    // Destroy existing card if remounting
+    if(cardRef.current){
+      try{cardRef.current.destroy();}catch(e){}
+      cardRef.current=null;
+    }
     const elements=getStripe().elements();
     const card=elements.create("card",{
       style:{base:{color:T.ink,fontFamily:"'Segoe UI',sans-serif",fontSize:"15px","::placeholder":{color:T.muted}},invalid:{color:T.accent}},
     });
-    card.mount(mountRef.current);
+    card.mount(cardMountRef.current);
     card.on("change",e=>setCardReady(!e.empty&&!e.error));
     cardRef.current=card;
-    return()=>card.destroy();
+    return()=>{
+      try{card.unmount();}catch(e){}
+    };
   },[]);
 
   return(
@@ -267,7 +273,7 @@ function StepPayment({plan,cardRef,setCardReady}){
       )}
       <div style={{background:T.surface,border:`1.5px solid ${T.border}`,borderRadius:16,padding:20,marginBottom:16}}>
         <p style={{fontFamily:"Georgia,serif",fontSize:15,fontWeight:700,color:T.ink,marginBottom:16}}>Card Details</p>
-        <div ref={mountRef} style={{padding:"12px 14px",background:T.faint,border:`1.5px solid ${T.border}`,borderRadius:10,minHeight:44}}/>
+        <div ref={cardMountRef} style={{padding:"12px 14px",background:T.faint,border:`1.5px solid ${T.border}`,borderRadius:10,minHeight:44}}/>
         <div style={{display:"flex",alignItems:"center",gap:8,marginTop:14,padding:"10px 12px",background:T.greenBg,border:`1px solid ${T.green}`,borderRadius:10}}>
           <span style={{fontSize:16}}>🔒</span>
           <p style={{color:T.green,fontSize:11,fontWeight:600}}>Secured by Stripe · 256-bit SSL</p>
@@ -668,6 +674,7 @@ function App(){
   const[submitErr,setSubmitErr]=useState("");
   const[cardReady,setCardReady]=useState(false);
   const cardRef=useRef(null);
+  const cardMountRef=useRef(null);
 
   const[brand,setBrand]=useState({brandName:"",tagline:"",category:""});
   const[contact,setContact]=useState({firstName:"",lastName:"",email:"",phone:"",street:"",suburb:"",state:"",postcode:"",country:"Australia"});
@@ -790,7 +797,7 @@ function App(){
           {step==="contact" &&<StepContact data={contact} setData={setContact}/>}
           {step==="bank"    &&<StepBank    data={bank}    setData={setBank}/>}
           {step==="plan"    &&<StepPlan    selectedPlan={planId} onSelect={setPlanId}/>}
-          {step==="payment" &&<StepPayment plan={planId} cardRef={cardRef} setCardReady={setCardReady}/>}
+          {step==="payment" &&<StepPayment plan={planId} cardRef={cardRef} setCardReady={setCardReady} cardMountRef={cardMountRef}/>}
           {step==="design"  &&<StepDesign  data={design}  setData={setDesign}/>}
           {step==="review"  &&<StepReview  brand={brand} contact={contact} bank={bank} planId={planId} design={design}/>}
 

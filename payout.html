@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Merch on Demand — Payout Manager</title>
+<script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:#0a0a0f;font-family:'Segoe UI',sans-serif;color:#fff}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  input,select,textarea{font-family:inherit}
+  ::-webkit-scrollbar{width:4px}
+  ::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.1);border-radius:2px}
+  select option{background:#18181b;color:#fff}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+
+const PAYOUT_PER_ITEM = 10;
+
+const PROXY_CODE = `const http=require("http");const https=require("https");const H={"Access-Control-Allow-Origin":"*","Access-Control-Allow-Headers":"x-shopify-token,Content-Type","Access-Control-Allow-Methods":"GET,OPTIONS"};http.createServer((req,res)=>{Object.entries(H).forEach(([k,v])=>res.setHeader(k,v));if(req.method==="OPTIONS"){res.writeHead(204);return res.end();}let u;try{u=new URL(req.url,"http://localhost");}catch{res.writeHead(400);return res.end(JSON.stringify({error:"bad url"}));}if(u.pathname!=="/shopify"){res.writeHead(400);return res.end(JSON.stringify({error:"use /shopify"}));}const store=u.searchParams.get("store");const path=u.searchParams.get("path");const token=req.headers["x-shopify-token"];if(!store||!path||!token){res.writeHead(400);return res.end(JSON.stringify({error:"missing params"}));}const clean=store.trim().replace(/^https?:\\/\\//i,"").replace(/\\/+$/,"");const target=new URL("https://"+clean+"/admin/api/2024-01/"+path);const opts={hostname:target.hostname,path:target.pathname+target.search,method:"GET",headers:{"X-Shopify-Access-Token":token,"Content-Type":"application/json","Accept":"application/json"}};const r=https.request(opts,(sr)=>{let b="";sr.on("data",c=>b+=c);sr.on("end",()=>{res.writeHead(sr.statusCode,{"Content-Type":"application/json","Access-Control-Allow-Origin":"*"});res.end(b);});});r.on("error",(e)=>{res.writeHead(502);res.end(JSON.stringify({error:e.message}));});r.setTimeout(10000,()=>{r.destroy();res.writeHead(504);res.end(JSON.stringify({error:"timeout"}));});r.end();}).listen(process.env.PORT||3001,()=>console.log("Proxy ready on port "+(process.env.PORT||3001)));`;
+
+const DEMO_VENDORS=[
+  {id:"v1",name:"Jake Rivera",store:"Rivera Designs",email:"jake@rivera.com",collectionId:"c1",bank:"CBA",bsb:"062-000",accountNumber:"12345678",accountName:"Jake Rivera",status:"active",joinDate:"2025-08-14",payoutRate:10},
+  {id:"v2",name:"Mia Thornton",store:"Thornton Co.",email:"mia@thornton.com",collectionId:"c2",bank:"Westpac",bsb:"032-080",accountNumber:"98765432",accountName:"Mia Thornton",status:"active",joinDate:"2025-11-01",payoutRate:10},
+  {id:"v3",name:"Sam Chen",store:"Chen Print Studio",email:"sam@chen.com",collectionId:"c3",bank:"NAB",bsb:"083-170",accountNumber:"55544433",accountName:"Sam Chen",status:"active",joinDate:"2026-01-20",payoutRate:10},
+];
+const DEMO_COLLECTIONS=[{id:"c1",title:"Rivera Designs"},{id:"c2",title:"Thornton Co."},{id:"c3",title:"Chen Print Studio"}];
+const DEMO_ORDERS=[
+  {id:"o1",product:"Sunset Tee",collectionId:"c1",qty:2,revenue:90,date:"2026-04-02"},
+  {id:"o2",product:"Logo Hoodie",collectionId:"c2",qty:1,revenue:89,date:"2026-04-05"},
+  {id:"o3",product:"Retro Cap",collectionId:"c1",qty:3,revenue:96,date:"2026-04-07"},
+  {id:"o4",product:"Wave Print Tee",collectionId:"c3",qty:1,revenue:42,date:"2026-04-10"},
+  {id:"o5",product:"Classic Tee",collectionId:"c2",qty:2,revenue:56,date:"2026-04-12"},
+  {id:"o6",product:"Varsity Jacket",collectionId:"c1",qty:2,revenue:240,date:"2026-04-21"},
+];
+const DEMO_PAYMENTS=[
+  {id:"p1",vendorId:"v1",vendor:"Rivera Designs",amount:80,items:8,period:"March 2026",status:"completed",date:"2026-03-31",ref:"MOD-MAR-V1",bank:"CBA",accountNumber:"12345678"},
+  {id:"p2",vendorId:"v2",vendor:"Thornton Co.",amount:40,items:4,period:"March 2026",status:"completed",date:"2026-03-31",ref:"MOD-MAR-V2",bank:"Westpac",accountNumber:"98765432"},
+  {id:"p3",vendorId:"v3",vendor:"Chen Print Studio",amount:60,items:6,period:"March 2026",status:"completed",date:"2026-03-31",ref:"MOD-MAR-V3",bank:"NAB",accountNumber:"55544433"},
+];
+
+const fmt=n=>`$${Number(n).toFixed(2)}`;
+const fmtD=d=>{try{return new Date(d).toLocaleDateString("en-AU",{day:"numeric",month:"short",year:"numeric"});}catch{return d;}};
+const cleanUrl=s=>s.trim().replace(/^https?:\/\//i,"").replace(/\/+$/,"");
+const vsum=(vid,orders,vendors)=>{const v=vendors.find(x=>x.id===vid);const rows=orders.filter(o=>v&&o.collectionId===v.collectionId);const qty=rows.reduce((s,o)=>s+(o.qty||0),0);const rev=rows.reduce((s,o)=>s+(o.revenue||0),0);return{count:rows.length,qty,revenue:rev,payout:qty*(v?.payoutRate??PAYOUT_PER_ITEM)};};
+
+// ABA
+function buildABA(list,period){
+  const pr=(s,n)=>String(s??"").substring(0,n).padEnd(n);
+  const pl=(s,n,c=" ")=>String(s??"").substring(0,n).padStart(n,c);
+  const date=new Date().toLocaleDateString("en-AU",{day:"2-digit",month:"2-digit",year:"2-digit"}).replace(/\//g,"");
+  const header=("0 "+pr("062-000",7)+pr("",12)+pr("CBA",3)+" "+pr("APCA",26)+pl("01",6,"0")+date+" "+pr("MERCH PAYOUTS",12)+pr("",40)).substring(0,120);
+  let tc=0;
+  const details=list.map(({accountName,bsb,accountNumber,amount,ref})=>{const cents=Math.round(amount*100);tc+=cents;const b=bsb.includes("-")?bsb:`${bsb.slice(0,3)}-${bsb.slice(3)}`;return("1"+pr(b,7)+pl(accountNumber.slice(0,9),9)+" "+"50"+pl(String(cents),10,"0")+pr(accountName.slice(0,32),32)+pr((ref||"MERCH PAYOUT").slice(0,18),18)+pr("062000",7)+pl("123456789",9)+pr("Merch On Demand",16)+pl("00000000",8,"0")).substring(0,120);});
+  const trailer=("7"+"999-999"+pr("",12)+pl(String(tc),10,"0")+pl(String(tc),10,"0")+pl("0",10,"0")+pr("",24)+pl(String(details.length),6,"0")+pr("",40)).substring(0,120);
+  return[header,...details,trailer].join("\r\n");
+}
+
+// Shopify fetch — direct, no proxy needed when running locally
+async function sfetch(proxy,store,token,path){
+  const base=proxy.trim().replace(/\/+$/,"");
+  const url=`${base}/shopify?store=${encodeURIComponent(cleanUrl(store))}&path=${encodeURIComponent(path)}`;
+  let res;
+  try{res=await fetch(url,{headers:{"x-shopify-token":token}});}
+  catch(e){throw new Error(`Cannot reach proxy — is it running? (${e.message})`);}
+  if(res.status===401)throw new Error("401 — Invalid API token");
+  if(res.status===403)throw new Error("403 — Missing scopes: read_orders, read_products, read_collections");
+  if(res.status===404)throw new Error("404 — Store not found");
+  if(res.status===429)throw new Error("429 — Rate limited, wait 10s");
+  if(!res.ok)throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+// S = style tokens
+const S={bg:"#0a0a0f",card:"rgba(255,255,255,0.03)",border:"rgba(255,255,255,0.08)",text:"#fff",muted:"#71717a",faint:"#27272a",accent:"#8b5cf6",green:"#10b981",amber:"#f59e0b",red:"#ef4444"};
+
+const {useState,useCallback}=React;
+
+function Tag({children,color}){color=color||S.accent;return <span style={{background:color+"22",border:`1px solid ${color}44`,color,fontSize:9,fontWeight:700,padding:"2px 8px",borderRadius:99,textTransform:"uppercase",letterSpacing:"0.06em"}}>{children}</span>;}
+function Spin(){return <span style={{display:"inline-block",width:12,height:12,border:"2px solid rgba(255,255,255,0.15)",borderTopColor:"#fff",borderRadius:"50%",animation:"spin 0.7s linear infinite"}}/>;}
+function Card({children,style}){return <div style={{background:S.card,border:`1px solid ${S.border}`,borderRadius:16,padding:18,...style}}>{children}</div>;}
+function Stat({label,value,sub,color}){return(<div style={{background:S.card,border:`1px solid ${S.border}`,borderRadius:14,padding:"14px 12px"}}><p style={{color:S.muted,fontSize:9,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:5}}>{label}</p><p style={{color:color||S.text,fontSize:22,fontWeight:900,fontFamily:"monospace",lineHeight:1}}>{value}</p>{sub&&<p style={{color:S.muted,fontSize:10,marginTop:4}}>{sub}</p>}</div>);}
+function Btn({children,onClick,disabled,color,outline,small}){const bg=disabled?S.faint:outline?"transparent":color||S.accent;return <button onClick={onClick} disabled={disabled} style={{padding:small?"7px 14px":"11px 18px",background:bg,border:outline?`1.5px solid ${color||S.accent}`:"none",borderRadius:10,color:disabled?S.muted:outline?(color||S.accent):"#fff",fontWeight:700,fontSize:small?11:13,cursor:disabled?"default":"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>{children}</button>;}
+function Inp({label,value,onChange,placeholder,hint,mono,type="text"}){return(<div style={{marginBottom:14}}>{label&&<p style={{color:S.muted,fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:5}}>{label}</p>}<input type={type} value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} style={{width:"100%",padding:"10px 12px",background:"rgba(255,255,255,0.05)",border:`1px solid ${S.border}`,borderRadius:10,color:S.text,fontSize:mono?12:13,fontFamily:mono?"monospace":"inherit",outline:"none",boxSizing:"border-box"}} onFocus={e=>e.target.style.borderColor=S.accent} onBlur={e=>e.target.style.borderColor=S.border}/>{hint&&<p style={{color:S.muted,fontSize:10,marginTop:4}}>{hint}</p>}</div>);}
+
+function Setup({onConnect,onDemo}){
+  const[store,setStore]=useState("");
+  const[token,setToken]=useState("");
+  const[proxy,setProxy]=useState("https://shopify-proxy-production-c72c.up.railway.app");
+  const dl=()=>{const a=document.createElement("a");a.href="data:text/plain;charset=utf-8,"+encodeURIComponent(PROXY_CODE);a.download="proxy.js";document.body.appendChild(a);a.click();document.body.removeChild(a);};
+  return(
+    <div style={{background:S.bg,minHeight:"100vh",padding:"32px 20px",maxWidth:480,margin:"0 auto"}}>
+      <p style={{fontSize:22,fontWeight:900,color:S.text,marginBottom:4,fontFamily:"monospace"}}>MERCH ON DEMAND</p>
+      <p style={{color:S.muted,fontSize:13,marginBottom:24}}>Connect your Shopify store</p>
+      <Card style={{marginBottom:14}}>
+        <p style={{color:S.muted,fontWeight:700,fontSize:12,marginBottom:14}}>Shopify credentials</p>
+        <Inp label="Proxy URL" value={proxy} onChange={setProxy} placeholder="https://your-proxy.up.railway.app" mono hint="Your Railway proxy URL"/>
+        <Inp label="Store URL" value={store} onChange={setStore} placeholder="yourstore.myshopify.com" mono hint="No https:// · no trailing slash"/>
+        <Inp label="Admin API Token" value={token} onChange={setToken} placeholder="shpat_xxxxxxxxxxxx" mono type="password" hint="Shopify Admin → Settings → Apps → Develop Apps"/>
+        <div style={{background:"rgba(139,92,246,0.08)",border:"1px solid rgba(139,92,246,0.2)",borderRadius:10,padding:"10px 12px",marginBottom:14,fontSize:11,color:S.muted}}>Required scopes: <span style={{color:S.text}}>read_orders, read_products, read_collections</span></div>
+        <Btn onClick={()=>onConnect(store,token,proxy)} disabled={!store||!token||!proxy}>Connect &amp; Sync →</Btn>
+      </Card>
+      <button onClick={onDemo} style={{width:"100%",padding:11,background:"transparent",border:`1px solid ${S.border}`,borderRadius:10,color:S.muted,fontWeight:600,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>Use Demo Data Instead</button>
+    </div>
+  );
+}
+
+function Dashboard({vendors,orders,payments}){
+  const totalRev=orders.reduce((s,o)=>s+o.revenue,0);
+  const totalItems=orders.reduce((s,o)=>s+o.qty,0);
+  const totalPayout=vendors.reduce((s,v)=>s+vsum(v.id,orders,vendors).payout,0);
+  const now=new Date().toLocaleString("en-AU",{month:"long",year:"numeric"});
+  return(
+    <div style={{display:"flex",flexDirection:"column",gap:20}}>
+      <div><p style={{color:S.text,fontWeight:900,fontSize:20,fontFamily:"monospace"}}>{now}</p><p style={{color:S.muted,fontSize:12,marginTop:2}}>Month to date</p></div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+        <Stat label="Revenue" value={fmt(totalRev)} sub={`${orders.length} orders`} color={S.amber}/>
+        <Stat label="Items Sold" value={totalItems} sub="All collections"/>
+        <Stat label="Payouts Due" value={fmt(totalPayout)} sub={`$${PAYOUT_PER_ITEM}/item`} color={S.green}/>
+        <Stat label="Vendors" value={vendors.filter(v=>v.status==="active").length} sub="Active" color={S.accent}/>
+      </div>
+      <div>
+        <p style={{color:S.muted,fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:10}}>Vendor Breakdown</p>
+        {vendors.map(v=>{const s=vsum(v.id,orders,vendors);const pct=totalPayout>0?(s.payout/totalPayout)*100:0;return(
+          <Card key={v.id} style={{marginBottom:10,padding:14}}>
+            <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}>
+              <div><p style={{color:S.text,fontWeight:700,fontSize:14}}>{v.store}</p><p style={{color:S.muted,fontSize:11}}>{v.name} · {s.count} orders · {s.qty} items</p></div>
+              <div style={{textAlign:"right"}}><p style={{color:S.green,fontWeight:900,fontSize:18,fontFamily:"monospace"}}>{fmt(s.payout)}</p><p style={{color:S.muted,fontSize:10}}>{s.qty} × ${v.payoutRate}</p></div>
+            </div>
+            <div style={{height:4,background:S.faint,borderRadius:99}}><div style={{height:4,width:`${pct}%`,background:`linear-gradient(90deg,${S.accent},${S.green})`,borderRadius:99}}/></div>
+          </Card>
+        );})}
+      </div>
+      <div>
+        <p style={{color:S.muted,fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:10}}>Recent Orders</p>
+        {orders.slice(-5).reverse().map(o=>{const v=vendors.find(x=>x.collectionId===o.collectionId);return(
+          <div key={o.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"9px 0",borderBottom:`1px solid ${S.border}`}}>
+            <div><p style={{color:S.text,fontSize:13}}>{o.product}</p><p style={{color:S.muted,fontSize:11}}>{v?.store} · {fmtD(o.date)} · qty {o.qty}</p></div>
+            <p style={{color:S.green,fontWeight:700}}>{fmt(o.qty*(v?.payoutRate??PAYOUT_PER_ITEM))}</p>
+          </div>
+        );})}
+      </div>
+    </div>
+  );
+}
+
+function Vendors({vendors,setVendors,orders,collections}){
+  const[edit,setEdit]=useState(null);
+  const[form,setForm]=useState({});
+  const BLANK={name:"",email:"",store:"",collectionId:"",accountName:"",bsb:"",accountNumber:"",bank:"",payoutRate:PAYOUT_PER_ITEM};
+  const open=v=>{setForm(v?{...v}:{...BLANK});setEdit(v?v.id:"new");};
+  const save=()=>{if(edit==="new")setVendors(vs=>[...vs,{...form,id:`v_${Date.now()}`,status:"active",joinDate:new Date().toISOString().split("T")[0]}]);else setVendors(vs=>vs.map(v=>v.id===edit?{...v,...form,payoutRate:Number(form.payoutRate)}:v));setEdit(null);};
+  const F=(label,key,ph,mono)=><Inp label={label} value={form[key]||""} onChange={val=>setForm(f=>({...f,[key]:val}))} placeholder={ph} mono={mono}/>;
+  return(
+    <div style={{display:"flex",flexDirection:"column",gap:16}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <p style={{color:S.text,fontWeight:900,fontSize:20,fontFamily:"monospace"}}>Vendors</p>
+        <Btn small onClick={()=>open(null)}>+ Add</Btn>
+      </div>
+      {edit&&<Card style={{border:`1px solid ${S.accent}44`}}>
+        <p style={{color:S.text,fontWeight:700,marginBottom:14}}>{edit==="new"?"New Vendor":"Edit Vendor"}</p>
+        {F("Name","name","Jake Rivera")}{F("Email","email","jake@brand.com")}{F("Store Name","store","Rivera Designs")}
+        <div style={{marginBottom:14}}><p style={{color:S.muted,fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:5}}>Collection</p>
+          <select value={form.collectionId||""} onChange={e=>setForm(f=>({...f,collectionId:e.target.value}))} style={{width:"100%",padding:"10px 12px",background:"rgba(255,255,255,0.05)",border:`1px solid ${S.border}`,borderRadius:10,color:S.text,fontSize:13,outline:"none"}}>
+            <option value="">— Select —</option>{collections.map(c=><option key={c.id} value={c.id}>{c.title}</option>)}
+          </select>
+        </div>
+        {F("Payout Rate ($)","payoutRate","10")}
+        <p style={{color:S.muted,fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",margin:"12px 0 10px",paddingTop:10,borderTop:`1px solid ${S.border}`}}>Bank Details</p>
+        {F("Bank","bank","Commonwealth Bank")}{F("Account Name","accountName","Jake Rivera")}{F("BSB","bsb","062-000",true)}{F("Account Number","accountNumber","12345678",true)}
+        <div style={{display:"flex",gap:10,marginTop:6}}><Btn onClick={save}>Save</Btn><Btn outline onClick={()=>setEdit(null)}>Cancel</Btn></div>
+      </Card>}
+      {vendors.map(v=>{const s=vsum(v.id,orders,vendors);const coll=collections.find(c=>c.id===v.collectionId);return(
+        <Card key={v.id}>
+          <div style={{display:"flex",justifyContent:"space-between",marginBottom:12}}>
+            <div><div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3}}><p style={{color:S.text,fontWeight:700}}>{v.store}</p><Tag color={v.status==="active"?S.green:S.muted}>{v.status}</Tag></div><p style={{color:S.muted,fontSize:11}}>{v.name} · {v.email}</p><p style={{color:S.muted,fontSize:10,marginTop:2}}>Collection: {coll?.title||"—"}</p></div>
+            <Btn small outline onClick={()=>open(v)}>Edit</Btn>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:12}}>
+            {[["Orders",s.count],["Items",s.qty],["Payout",fmt(s.payout)]].map(([l,val])=><div key={l} style={{background:S.faint,borderRadius:8,padding:8,textAlign:"center"}}><p style={{color:l==="Payout"?S.green:S.text,fontWeight:700,fontSize:16}}>{val}</p><p style={{color:S.muted,fontSize:10}}>{l}</p></div>)}
+          </div>
+          <div style={{background:"rgba(0,0,0,0.2)",borderRadius:10,padding:"10px 12px"}}>
+            {[["Bank",v.bank],["BSB",v.bsb],["Account",`••••${v.accountNumber?.slice(-4)}`],["Rate",`$${v.payoutRate}/item`]].map(([l,val])=><div key={l} style={{display:"flex",justifyContent:"space-between",padding:"7px 0",borderBottom:`1px solid ${S.border}`}}><span style={{color:S.muted,fontSize:12}}>{l}</span><span style={{color:l==="Rate"?S.accent:S.text,fontSize:12,fontWeight:600}}>{val}</span></div>)}
+          </div>
+        </Card>
+      );})}
+    </div>
+  );
+}
+
+function Sales({vendors,orders}){
+  const[filter,setFilter]=useState("all");
+  const rows=filter==="all"?orders:orders.filter(o=>{const v=vendors.find(x=>x.id===filter);return v&&o.collectionId===v.collectionId;});
+  const totalItems=rows.reduce((s,o)=>s+o.qty,0);
+  const totalPayout=rows.reduce((s,o)=>{const v=vendors.find(x=>x.collectionId===o.collectionId);return s+o.qty*(v?.payoutRate??PAYOUT_PER_ITEM);},0);
+  return(
+    <div style={{display:"flex",flexDirection:"column",gap:16}}>
+      <p style={{color:S.text,fontWeight:900,fontSize:20,fontFamily:"monospace"}}>Sales</p>
+      <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+        {[{id:"all",label:"All"},...vendors.map(v=>({id:v.id,label:v.store}))].map(t=><button key={t.id} onClick={()=>setFilter(t.id)} style={{padding:"6px 14px",borderRadius:99,fontSize:11,fontWeight:700,border:"none",cursor:"pointer",background:filter===t.id?S.accent:S.faint,color:filter===t.id?"#fff":S.muted,fontFamily:"inherit"}}>{t.label}</button>)}
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+        <Stat label="Orders" value={rows.length}/>
+        <Stat label="Items" value={totalItems}/>
+        <Stat label="Payout" value={fmt(totalPayout)} color={S.green}/>
+        <Stat label="Revenue" value={fmt(rows.reduce((s,o)=>s+o.revenue,0))} color={S.amber}/>
+      </div>
+      {rows.length===0?<p style={{color:S.muted,textAlign:"center",padding:"40px 0"}}>No orders</p>:rows.map(o=>{const v=vendors.find(x=>x.collectionId===o.collectionId);const payout=o.qty*(v?.payoutRate??PAYOUT_PER_ITEM);return(
+        <Card key={o.id} style={{padding:14}}>
+          <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
+            <div><p style={{color:S.text,fontWeight:600,fontSize:13}}>{o.product}</p><p style={{color:S.muted,fontSize:11}}>{v?.store||"Unknown"} · {fmtD(o.date)}</p></div>
+            <div style={{textAlign:"right"}}><p style={{color:S.green,fontWeight:700}}>{fmt(payout)}</p><p style={{color:S.muted,fontSize:10}}>payout</p></div>
+          </div>
+          <div style={{display:"flex",gap:14,fontSize:11,color:S.muted}}>
+            <span>Revenue: <b style={{color:S.text}}>{fmt(o.revenue)}</b></span>
+            <span>Qty: <b style={{color:S.text}}>{o.qty}</b></span>
+            <span>Rate: <b style={{color:S.accent}}>${v?.payoutRate??PAYOUT_PER_ITEM}/item</b></span>
+          </div>
+        </Card>
+      );})}
+    </div>
+  );
+}
+
+function Payouts({vendors,orders,payments,setPayments}){
+  const[processing,setProcessing]=useState({});
+  const[abaOpen,setAbaOpen]=useState(false);
+  const[abaChecked,setAbaChecked]=useState({});
+  const period=new Date().toLocaleString("en-AU",{month:"long",year:"numeric"});
+  const paid=vid=>payments.some(p=>p.vendorId===vid&&p.period===period);
+  const pay=v=>{const s=vsum(v.id,orders,vendors);if(!s.qty)return;setProcessing(p=>({...p,[v.id]:"processing"}));setTimeout(()=>{const mo=new Date().toLocaleString("en-AU",{month:"short"}).toUpperCase();setPayments(ps=>[...ps,{id:`pay_${Date.now()}`,vendorId:v.id,vendor:v.store,amount:s.payout,items:s.qty,period,status:"completed",date:new Date().toISOString().split("T")[0],ref:`MOD-${mo}-${v.id.slice(-4).toUpperCase()}`,bank:v.bank,accountNumber:v.accountNumber}]);setProcessing(p=>({...p,[v.id]:"done"}));setTimeout(()=>setProcessing(p=>{const n={...p};delete n[v.id];return n;}),3000);},1800);};
+  const openABA=()=>{const init={};vendors.filter(v=>v.status==="active"&&vsum(v.id,orders,vendors).qty>0).forEach(v=>{init[v.id]=true;});setAbaChecked(init);setAbaOpen(true);};
+  const dlABA=()=>{const sel=vendors.filter(v=>abaChecked[v.id]);if(!sel.length)return;const mo=new Date().toLocaleString("en-AU",{month:"short"}).toUpperCase();const list=sel.map(v=>{const s=vsum(v.id,orders,vendors);return{accountName:v.accountName,bsb:v.bsb,accountNumber:v.accountNumber,amount:s.payout,ref:`MOD-${mo}-${v.id.slice(-4).toUpperCase()}`};});const content=buildABA(list,period);const a=document.createElement("a");a.href="data:text/plain;charset=utf-8,"+encodeURIComponent(content);a.download=`MerchOnDemand_${period.replace(" ","_")}.aba`;document.body.appendChild(a);a.click();document.body.removeChild(a);setAbaOpen(false);};
+  const unpaid=vendors.filter(v=>v.status==="active"&&!paid(v.id));
+  const totalDue=unpaid.reduce((s,v)=>s+vsum(v.id,orders,vendors).payout,0);
+  return(
+    <div style={{display:"flex",flexDirection:"column",gap:16}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
+        <p style={{color:S.text,fontWeight:900,fontSize:20,fontFamily:"monospace"}}>Payouts</p>
+        <div style={{display:"flex",gap:8}}>
+          <Btn small outline color={S.green} onClick={openABA}>⬇ ABA File</Btn>
+          {unpaid.length>0&&<Btn small color={S.green} onClick={()=>unpaid.forEach((v,i)=>setTimeout(()=>pay(v),i*900))}>Pay All · {fmt(totalDue)}</Btn>}
+        </div>
+      </div>
+      {abaOpen&&<Card style={{border:`1px solid ${S.green}44`}}>
+        <div style={{display:"flex",justifyContent:"space-between",marginBottom:12}}><p style={{color:S.text,fontWeight:700}}>Export ABA File</p><button onClick={()=>setAbaOpen(false)} style={{background:"none",border:"none",color:S.muted,fontSize:18,cursor:"pointer"}}>✕</button></div>
+        {vendors.filter(v=>v.status==="active"&&vsum(v.id,orders,vendors).qty>0).map(v=>{const s=vsum(v.id,orders,vendors);return(
+          <div key={v.id} onClick={()=>setAbaChecked(c=>({...c,[v.id]:!c[v.id]}))} style={{display:"flex",alignItems:"center",gap:12,padding:10,background:abaChecked[v.id]?"rgba(16,185,129,0.08)":"rgba(255,255,255,0.02)",border:`1px solid ${abaChecked[v.id]?"rgba(16,185,129,0.25)":S.border}`,borderRadius:10,marginBottom:8,cursor:"pointer"}}>
+            <div style={{width:18,height:18,borderRadius:4,border:`2px solid ${abaChecked[v.id]?S.green:S.muted}`,background:abaChecked[v.id]?S.green:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{abaChecked[v.id]&&<span style={{color:"#000",fontSize:11,fontWeight:900}}>✓</span>}</div>
+            <div style={{flex:1}}><p style={{color:S.text,fontSize:13,fontWeight:600}}>{v.store}</p><p style={{color:S.muted,fontSize:11}}>{v.bank} · ••••{v.accountNumber?.slice(-4)}</p></div>
+            <p style={{color:S.green,fontWeight:700}}>{fmt(s.payout)}</p>
+          </div>
+        );})}
+        <div style={{background:"rgba(16,185,129,0.06)",borderRadius:8,padding:"10px 12px",marginBottom:12,display:"flex",justifyContent:"space-between"}}><span style={{color:S.muted,fontSize:12}}>Total</span><span style={{color:S.green,fontWeight:700}}>{fmt(vendors.filter(v=>abaChecked[v.id]).reduce((s,v)=>s+vsum(v.id,orders,vendors).payout,0))}</span></div>
+        <Btn onClick={dlABA} disabled={!Object.values(abaChecked).some(Boolean)}>⬇ Download ABA File</Btn>
+      </Card>}
+      <p style={{color:S.muted,fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em"}}>Pending — {period}</p>
+      {vendors.filter(v=>v.status==="active").map(v=>{const s=vsum(v.id,orders,vendors);const isPaid=paid(v.id);const st=processing[v.id];return(
+        <Card key={v.id} style={{border:isPaid?`1px solid rgba(16,185,129,0.2)`:`1px solid ${S.border}`}}>
+          <div style={{display:"flex",justifyContent:"space-between",marginBottom:10}}>
+            <div><p style={{color:S.text,fontWeight:700}}>{v.store}</p><p style={{color:S.muted,fontSize:11}}>{v.bank} · ••••{v.accountNumber?.slice(-4)}</p></div>
+            <div style={{textAlign:"right"}}><p style={{color:S.green,fontWeight:900,fontSize:22,fontFamily:"monospace"}}>{fmt(s.payout)}</p><p style={{color:S.muted,fontSize:10}}>{s.qty} items × ${v.payoutRate}</p></div>
+          </div>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <span style={{color:S.muted,fontSize:11}}>Revenue: {fmt(s.revenue)}</span>
+            {isPaid?<span style={{color:S.green,fontSize:12,fontWeight:700}}>✓ Paid</span>:s.qty===0?<span style={{color:S.muted,fontSize:11}}>No sales yet</span>:<Btn small onClick={()=>pay(v)} disabled={!!st}>{st==="processing"?"Processing…":st==="done"?"✓ Sent!":"Pay Now"}</Btn>}
+          </div>
+        </Card>
+      );})}
+      <p style={{color:S.muted,fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginTop:4}}>History</p>
+      {[...payments].reverse().map(p=>(
+        <div key={p.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"12px 14px",background:S.card,border:`1px solid ${S.border}`,borderRadius:12,marginBottom:8}}>
+          <div><p style={{color:S.text,fontSize:13,fontWeight:600}}>{p.vendor}</p><p style={{color:S.muted,fontSize:11}}>{p.period} · {p.items} items · {p.ref}</p></div>
+          <div style={{textAlign:"right"}}><p style={{color:S.text,fontWeight:700,fontSize:16,fontFamily:"monospace"}}>{fmt(p.amount)}</p><Tag color={S.green}>{p.status}</Tag></div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function Scheduler({vendors,orders}){
+  const now=new Date();const lastDay=new Date(now.getFullYear(),now.getMonth()+1,0);const daysLeft=lastDay.getDate()-now.getDate();const pct=(now.getDate()/lastDay.getDate())*100;const total=vendors.filter(v=>v.status==="active").reduce((s,v)=>s+vsum(v.id,orders,vendors).payout,0);
+  return(
+    <div style={{display:"flex",flexDirection:"column",gap:16}}>
+      <p style={{color:S.text,fontWeight:900,fontSize:20,fontFamily:"monospace"}}>Scheduler</p>
+      <Card style={{background:"rgba(139,92,246,0.08)",border:"1px solid rgba(139,92,246,0.25)",textAlign:"center",padding:22}}>
+        <p style={{color:S.muted,fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8}}>Next Run</p>
+        <p style={{color:S.text,fontWeight:900,fontSize:22,fontFamily:"monospace",marginBottom:4}}>{lastDay.toLocaleDateString("en-AU",{day:"numeric",month:"long",year:"numeric"})}</p>
+        <p style={{color:S.muted,fontSize:13,marginBottom:16}}>{daysLeft} days · {vendors.filter(v=>v.status==="active").length} vendors · {fmt(total)}</p>
+        <div style={{height:8,background:S.faint,borderRadius:99,overflow:"hidden"}}><div style={{height:8,width:`${pct}%`,background:`linear-gradient(90deg,${S.accent},${S.green})`,borderRadius:99}}/></div>
+        <p style={{color:S.muted,fontSize:10,marginTop:6}}>Day {now.getDate()} of {lastDay.getDate()}</p>
+      </Card>
+      <Card>
+        <p style={{color:S.text,fontWeight:700,marginBottom:12}}>Upcoming Disbursements</p>
+        {vendors.filter(v=>v.status==="active").map(v=>{const s=vsum(v.id,orders,vendors);return(
+          <div key={v.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"9px 0",borderBottom:`1px solid ${S.border}`}}>
+            <div><p style={{color:S.text,fontSize:13,fontWeight:600}}>{v.store}</p><p style={{color:S.muted,fontSize:10}}>{v.bank} · {s.qty} items</p></div>
+            <div style={{textAlign:"right"}}><p style={{color:S.green,fontWeight:700,fontSize:14,fontFamily:"monospace"}}>{fmt(s.payout)}</p><Tag color={S.accent}>scheduled</Tag></div>
+          </div>
+        );})}
+      </Card>
+    </div>
+  );
+}
+
+function App(){
+  const[screen,setScreen]=useState("setup");
+  const[view,setView]=useState("dashboard");
+  const[vendors,setVendors]=useState(DEMO_VENDORS);
+  const[payments,setPayments]=useState(DEMO_PAYMENTS);
+  const[orders,setOrders]=useState(DEMO_ORDERS);
+  const[collections,setCollections]=useState(DEMO_COLLECTIONS);
+  const[syncing,setSyncing]=useState(false);
+  const[syncMsg,setSyncMsg]=useState("");
+  const[creds,setCreds]=useState({store:"",token:"",proxy:""});
+
+  const doSync=useCallback(async(store,token,proxy)=>{
+    setSyncing(true);setSyncMsg("Connecting…");
+    try{
+      if(store==="demo"){await new Promise(r=>setTimeout(r,800));setOrders(DEMO_ORDERS);setCollections(DEMO_COLLECTIONS);setSyncMsg("Demo data loaded ✓");}
+      else{
+        setSyncMsg("Fetching collections…");
+        const[ca,sa]=await Promise.all([sfetch(proxy,store,token,"custom_collections.json?limit=250"),sfetch(proxy,store,token,"smart_collections.json?limit=250")]);
+        const cols=[...(ca.custom_collections||[]),...(sa.smart_collections||[])];
+        setCollections(cols.map(c=>({id:c.id.toString(),title:c.title})));
+        setSyncMsg(`${cols.length} collections — products…`);
+        const colMap={};
+        for(const col of cols){const pd=await sfetch(proxy,store,token,`products.json?collection_id=${col.id}&limit=250&fields=id`);colMap[col.id.toString()]=new Set((pd.products||[]).map(p=>p.id.toString()));}
+        setSyncMsg("Fetching orders…");
+        const now=new Date();const fd=new Date(now.getFullYear(),now.getMonth(),1).toISOString().split("T")[0];const ld=new Date(now.getFullYear(),now.getMonth()+1,0).toISOString().split("T")[0];
+        const od=await sfetch(proxy,store,token,`orders.json?status=any&financial_status=paid&created_at_min=${fd}T00:00:00Z&created_at_max=${ld}T23:59:59Z&limit=250&fields=id,created_at,line_items`);
+        const raw=od.orders||[];
+        const processed=[];
+        for(const order of raw){for(const line of order.line_items||[]){const pid=line.product_id?.toString();let colId=null;for(const[cid,pset]of Object.entries(colMap)){if(pset.has(pid)){colId=cid;break;}}processed.push({id:`${order.id}-${line.id}`,product:line.title,collectionId:colId,qty:line.quantity||1,revenue:parseFloat(line.price)*(line.quantity||1),date:order.created_at?.split("T")[0]||""});}}
+        setOrders(processed);setSyncMsg(`✓ ${raw.length} orders synced`);
+      }
+    }catch(e){setSyncMsg(`❌ ${e.message}`);}
+    finally{setSyncing(false);setTimeout(()=>setSyncMsg(""),10000);}
+  },[]);
+
+  const handleConnect=(store,token,proxy)=>{setCreds({store,token,proxy});setScreen("app");doSync(store,token,proxy);};
+  const handleDemo=()=>{setCreds({store:"demo",token:"",proxy:""});setScreen("app");doSync("demo","","");};
+
+  const NAV=[{id:"dashboard",label:"Overview",icon:"◈"},{id:"vendors",label:"Vendors",icon:"⬡"},{id:"sales",label:"Sales",icon:"◆"},{id:"payouts",label:"Payouts",icon:"◎"},{id:"scheduler",label:"Schedule",icon:"◷"}];
+
+  if(screen==="setup")return <Setup onConnect={handleConnect} onDemo={handleDemo}/>;
+
+  return(
+    <div style={{background:S.bg,minHeight:"100vh",fontFamily:"'Segoe UI',sans-serif",color:S.text,maxWidth:480,margin:"0 auto"}}>
+      <div style={{background:"rgba(10,10,15,0.97)",borderBottom:`1px solid ${S.border}`,padding:"13px 18px",display:"flex",justifyContent:"space-between",alignItems:"center",position:"sticky",top:0,zIndex:50}}>
+        <div><p style={{fontWeight:900,fontSize:15,color:S.text,fontFamily:"monospace"}}>MERCH ON DEMAND</p><p style={{color:S.muted,fontSize:9}}>Payout Manager</p></div>
+        <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:3}}>
+          <div style={{display:"flex",alignItems:"center",gap:6}}>{syncing?<Spin/>:<div style={{width:7,height:7,borderRadius:"50%",background:S.green,boxShadow:`0 0 6px ${S.green}`}}/>}<span style={{color:S.muted,fontSize:9}}>{creds.store==="demo"?"Demo":"Shopify Live"}</span></div>
+          <div style={{display:"flex",gap:6,alignItems:"center"}}>
+            {syncMsg&&<span style={{color:syncMsg.startsWith("❌")?S.red:S.accent,fontSize:9,maxWidth:160,textAlign:"right",lineHeight:1.4}}>{syncMsg}</span>}
+            <button onClick={()=>setScreen("setup")} style={{background:"rgba(255,255,255,0.06)",border:`1px solid ${S.border}`,borderRadius:6,padding:"3px 9px",color:S.muted,fontSize:9,cursor:"pointer",fontFamily:"inherit"}}>⚙</button>
+            <button onClick={()=>doSync(creds.store,creds.token,creds.proxy)} disabled={syncing} style={{background:"rgba(255,255,255,0.06)",border:`1px solid ${S.border}`,borderRadius:6,padding:"3px 9px",color:S.muted,fontSize:9,cursor:"pointer",fontFamily:"inherit"}}>{syncing?"…":"↻"}</button>
+          </div>
+        </div>
+      </div>
+      <div style={{padding:"20px 18px 100px"}}>
+        {view==="dashboard"&&<Dashboard vendors={vendors} orders={orders} payments={payments}/>}
+        {view==="vendors"&&<Vendors vendors={vendors} setVendors={setVendors} orders={orders} collections={collections}/>}
+        {view==="sales"&&<Sales vendors={vendors} orders={orders}/>}
+        {view==="payouts"&&<Payouts vendors={vendors} orders={orders} payments={payments} setPayments={setPayments}/>}
+        {view==="scheduler"&&<Scheduler vendors={vendors} orders={orders}/>}
+      </div>
+      <div style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:480,background:"rgba(10,10,15,0.97)",borderTop:`1px solid ${S.border}`,padding:"9px 6px 12px"}}>
+        <div style={{display:"flex",justifyContent:"space-around"}}>
+          {NAV.map(n=><button key={n.id} onClick={()=>setView(n.id)} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:3,padding:"4px 10px",background:"none",border:"none",cursor:"pointer",opacity:view===n.id?1:0.35,fontFamily:"inherit"}}><span style={{fontSize:16,color:view===n.id?S.accent:S.text}}>{n.icon}</span><span style={{fontSize:9,fontWeight:700,color:view===n.id?S.accent:S.muted,letterSpacing:"0.04em"}}>{n.label}</span></button>)}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>

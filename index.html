@@ -1,0 +1,719 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Merch on Demand — Portals</title>
+<script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+<script src="https://js.stripe.com/v3/"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#0a0a0f;font-family:'Segoe UI',sans-serif;color:#fff}
+@keyframes spin{to{transform:rotate(360deg)}}
+input,select,textarea{font-family:inherit}
+::-webkit-scrollbar{width:4px}
+::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.1);border-radius:2px}
+select option{background:#18181b;color:#fff}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+
+// ── Supabase ──────────────────────────────────────────────────────────────────
+const SUPA_URL = "https://xwennpgxsndjpbwdmcwk.supabase.co";
+const SUPA_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh3ZW5ucGd4c25kanBid2RtY3drIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY5ODc1MjksImV4cCI6MjA5MjU2MzUyOX0.LAyCQtlsF9puLftwyK67qwsYED7PksZeP3QoD0lmuTA";
+const sb = supabase.createClient(SUPA_URL, SUPA_KEY);
+
+// ── Stripe config ─────────────────────────────────────────────────────────────
+const STRIPE_PK    = "pk_live_51O2OzhLgoqGtM7YGmzxSIZM6XNNfgJGpfIQYYcoT7JnFneionzk0gFfn0S8AiqvJZDhGI0zj2qQ28FvPF2Z0fFs7006Y2B3SXR";
+const PROXY        = "https://shopify-proxy-production-c72c.up.railway.app";
+const PRICE_IDS    = {
+  starter: "price_1TPZnhLgoqGtM7YGeJD5rUrp",
+  growth:  "price_1TPZplLgoqGtM7YGhboA3FYp",
+  pro:     "price_1TPZq1LgoqGtM7YGtx7koBm2",
+};
+
+// ── Plans ─────────────────────────────────────────────────────────────────────
+const PLANS = [
+  { id:"starter", name:"Starter", price:29.95, payout:10, col:"#4ADE80", badge:null,
+    features:["Up to 3 products","$10 per item sold","DTF print","Monthly payout","Email support"] },
+  { id:"growth",  name:"Growth",  price:59.95, payout:12, col:"#F0B429", badge:"POPULAR",
+    features:["Up to 10 products","$12 per item sold","DTF print","Priority payout","Full analytics","Priority support","Featured placement"] },
+  { id:"pro",     name:"Pro",     price:99.95, payout:15, col:"#A78BFA", badge:"BEST VALUE",
+    features:["Unlimited products","$15 per item sold","DTF + Embroidery","Weekly payout","Advanced analytics","Dedicated manager","Homepage feature"] },
+];
+const planOf = id => PLANS.find(p=>p.id===id)||PLANS[0];
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+const fmt  = n => `$${Number(n||0).toFixed(2)}`;
+const fmtD = d => { try{return new Date(d).toLocaleDateString("en-AU",{day:"numeric",month:"short",year:"numeric"});}catch{return d||"";} };
+
+// ── Style tokens ──────────────────────────────────────────────────────────────
+const S = {
+  bg:"#0a0a0f", card:"rgba(255,255,255,0.03)", border:"rgba(255,255,255,0.08)",
+  text:"#fff", muted:"#71717a", faint:"#27272a",
+  accent:"#8b5cf6", green:"#10b981", amber:"#f59e0b", red:"#ef4444",
+};
+
+const {useState,useEffect,useCallback} = React;
+
+// ── Atoms ─────────────────────────────────────────────────────────────────────
+function Spin(){return <span style={{display:"inline-block",width:12,height:12,border:"2px solid rgba(255,255,255,0.15)",borderTopColor:"#fff",borderRadius:"50%",animation:"spin 0.7s linear infinite"}}/>;}
+function Tag({children,color}){color=color||S.accent;return <span style={{background:color+"22",border:`1px solid ${color}44`,color,fontSize:9,fontWeight:700,padding:"2px 8px",borderRadius:99,textTransform:"uppercase",letterSpacing:"0.06em"}}>{children}</span>;}
+function Card({children,style}){return <div style={{background:S.card,border:`1px solid ${S.border}`,borderRadius:16,padding:18,...style}}>{children}</div>;}
+function Stat({label,value,sub,color}){return(<div style={{background:S.card,border:`1px solid ${S.border}`,borderRadius:14,padding:"14px 12px"}}><p style={{color:S.muted,fontSize:9,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:5}}>{label}</p><p style={{color:color||S.text,fontSize:22,fontWeight:900,fontFamily:"monospace",lineHeight:1}}>{value}</p>{sub&&<p style={{color:S.muted,fontSize:10,marginTop:4}}>{sub}</p>}</div>);}
+function Btn({children,onClick,disabled,color,outline,small,full}){const bg=disabled?S.faint:outline?"transparent":color||S.accent;return <button onClick={onClick} disabled={disabled} style={{padding:small?"7px 14px":"11px 18px",background:bg,border:outline?`1.5px solid ${color||S.accent}`:"none",borderRadius:10,color:disabled?S.muted:outline?(color||S.accent):"#fff",fontWeight:700,fontSize:small?11:13,cursor:disabled?"default":"pointer",fontFamily:"inherit",whiteSpace:"nowrap",width:full?"100%":"auto"}}>{children}</button>;}
+function Inp({label,value,onChange,placeholder,hint,mono,type="text",required}){return(<div style={{marginBottom:14}}>{label&&<p style={{color:S.muted,fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:5}}>{label}{required&&<span style={{color:S.red}}> *</span>}</p>}<input type={type} value={value||""} onChange={e=>onChange(e.target.value)} placeholder={placeholder} style={{width:"100%",padding:"10px 12px",background:"rgba(255,255,255,0.05)",border:`1px solid ${S.border}`,borderRadius:10,color:S.text,fontSize:mono?12:13,fontFamily:mono?"monospace":"inherit",outline:"none",boxSizing:"border-box"}} onFocus={e=>e.target.style.borderColor=S.accent} onBlur={e=>e.target.style.borderColor=S.border}/>{hint&&<p style={{color:S.muted,fontSize:10,marginTop:4}}>{hint}</p>}</div>);}
+function RowItem({label,value,vc}){return(<div style={{display:"flex",justifyContent:"space-between",padding:"8px 0",borderBottom:`1px solid ${S.border}`}}><span style={{color:S.muted,fontSize:12}}>{label}</span><span style={{color:vc||S.text,fontSize:12,fontWeight:600}}>{value}</span></div>);}
+
+// ── Stripe Payment Modal ─────────────────────────────────────────────────────
+function StripePaymentModal({vendor, planId, onSuccess, onClose}){
+  const plan = planOf(planId);
+  const cardRef = React.useRef(null);
+  const [cardEl, setCardEl] = React.useState(null);
+  const [processing, setProcessing] = React.useState(false);
+  const [err, setErr] = React.useState("");
+
+  React.useEffect(() => {
+    const stripe = Stripe(STRIPE_PK);
+    const elements = stripe.elements();
+    const card = elements.create("card", {
+      style: {
+        base: { color: "#fff", fontFamily: "monospace", fontSize: "14px", "::placeholder": { color: "#71717a" } },
+        invalid: { color: "#ef4444" },
+      },
+    });
+    card.mount(cardRef.current);
+    setCardEl(card);
+    return () => card.destroy();
+  }, []);
+
+  const submit = async () => {
+    setProcessing(true); setErr("");
+    try {
+      const result = await createStripeSubscription(vendor.email, vendor.name, planId, cardEl);
+      // Save to Supabase
+      await sb.from("subscriptions").upsert({
+        vendor_id: vendor.id, plan: planId,
+        price: plan.price, payout_rate: plan.payout,
+        status: "active", stripe_subscription_id: result.subscriptionId,
+      }, { onConflict: "vendor_id" });
+      await sb.from("vendors").update({ plan: planId, payout_rate: plan.payout }).eq("id", vendor.id);
+      onSuccess(planId);
+      onClose();
+    } catch(e) {
+      setErr(e.message);
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.85)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onClick={onClose}>
+      <div style={{background:"#18181b",border:`1px solid ${S.border}`,borderRadius:20,padding:26,maxWidth:420,width:"100%"}} onClick={e=>e.stopPropagation()}>
+        <div style={{display:"flex",justifyContent:"space-between",marginBottom:18}}>
+          <div>
+            <p style={{fontSize:18,fontWeight:700,color:S.text}}>Subscribe to {plan.name}</p>
+            <p style={{color:S.muted,fontSize:13,marginTop:2}}>${plan.price}/month · ${plan.payout} per item sold</p>
+          </div>
+          <button onClick={onClose} style={{background:"none",border:"none",fontSize:22,cursor:"pointer",color:S.muted}}>✕</button>
+        </div>
+
+        <div style={{background:"rgba(255,255,255,0.05)",border:`1px solid ${S.border}`,borderRadius:10,padding:"14px 16px",marginBottom:16}}>
+          <p style={{color:S.muted,fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:10}}>Card Details</p>
+          <div ref={cardRef} style={{minHeight:20}} />
+        </div>
+
+        {err && <p style={{color:S.red,fontSize:12,marginBottom:12}}>⚠ {err}</p>}
+
+        <div style={{background:"rgba(16,185,129,0.08)",border:`1px solid rgba(16,185,129,0.2)`,borderRadius:10,padding:"10px 12px",marginBottom:16,fontSize:11,color:S.muted}}>
+          🔒 Secured by Stripe · 256-bit SSL · Cancel anytime
+        </div>
+
+        <Btn onClick={submit} disabled={processing} full color={S.green}>
+          {processing ? <Spin/> : `Pay $${plan.price}/month →`}
+        </Btn>
+      </div>
+    </div>
+  );
+}
+
+// ── Plan Change Modal ─────────────────────────────────────────────────────────
+function PlanModal({vendor,onSave,onClose}){
+  const[sel,setSel]=useState(vendor.plan||"starter");
+  const cur=planOf(vendor.plan),nxt=planOf(sel);
+  const down=nxt.price<cur.price,same=sel===vendor.plan;
+  return(
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.8)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onClick={onClose}>
+      <div style={{background:"#18181b",border:`1px solid ${S.border}`,borderRadius:20,padding:26,maxWidth:460,width:"100%",maxHeight:"85vh",overflowY:"auto"}} onClick={e=>e.stopPropagation()}>
+        <div style={{display:"flex",justifyContent:"space-between",marginBottom:18}}>
+          <p style={{fontSize:18,fontWeight:700,color:S.text}}>Change Plan</p>
+          <button onClick={onClose} style={{background:"none",border:"none",fontSize:22,cursor:"pointer",color:S.muted}}>✕</button>
+        </div>
+        <p style={{color:S.muted,fontSize:13,marginBottom:18}}>Current: <strong style={{color:cur.col}}>{cur.name}</strong> · ${cur.price}/mo</p>
+        <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:18}}>
+          {PLANS.map(p=>{const active=sel===p.id,isCur=p.id===vendor.plan;return(
+            <div key={p.id} onClick={()=>setSel(p.id)} style={{border:`2px solid ${active?p.col:S.border}`,borderRadius:14,padding:"14px 16px",cursor:"pointer",background:active?"rgba(255,255,255,0.03)":"transparent",position:"relative"}}>
+              {isCur&&<span style={{position:"absolute",top:8,right:10,fontSize:9,fontWeight:700,color:S.muted,textTransform:"uppercase"}}>Current</span>}
+              {p.badge&&!isCur&&<span style={{position:"absolute",top:8,right:10,fontSize:9,fontWeight:700,background:p.col,color:"#000",padding:"2px 8px",borderRadius:99}}>{p.badge}</span>}
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <div style={{display:"flex",alignItems:"center",gap:10}}>
+                  <div style={{width:18,height:18,borderRadius:"50%",border:`2.5px solid ${active?p.col:S.border}`,display:"flex",alignItems:"center",justifyContent:"center"}}>{active&&<div style={{width:9,height:9,borderRadius:"50%",background:p.col}}/>}</div>
+                  <div><p style={{fontWeight:700,color:S.text,fontSize:14}}>{p.name}</p><p style={{color:p.col,fontSize:12,fontWeight:600}}>${p.payout} per item</p></div>
+                </div>
+                <div style={{textAlign:"right"}}><p style={{fontWeight:900,fontSize:20,color:p.col,fontFamily:"monospace"}}>${p.price}</p><p style={{color:S.muted,fontSize:10}}>/month</p></div>
+              </div>
+            </div>
+          );})}
+        </div>
+        {!same&&<div style={{background:down?"rgba(245,158,11,0.1)":"rgba(16,185,129,0.1)",border:`1px solid ${down?S.amber:S.green}`,borderRadius:10,padding:12,marginBottom:14}}>
+          <p style={{fontSize:12,fontWeight:700,color:down?S.amber:S.green,marginBottom:2}}>{down?"⬇ Downgrade":"⬆ Upgrade"} to {nxt.name}</p>
+          <p style={{fontSize:12,color:S.muted}}>{down?`Payout drops from $${cur.payout} to $${nxt.payout}/item. Next billing cycle.`:`Payout increases from $${cur.payout} to $${nxt.payout}/item. Effective immediately.`}</p>
+        </div>}
+        <div style={{display:"flex",gap:10}}>
+          <Btn outline onClick={onClose} full={false}>Cancel</Btn>
+          <Btn onClick={()=>{onSave(sel);onClose();}} disabled={same} color={S.green}>
+            {same?"No change":`Confirm ${down?"Downgrade":"Upgrade"}`}
+          </Btn>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// VENDOR PORTAL
+// ══════════════════════════════════════════════════════════════════════════════
+function VendorPortal({session,onLogout}){
+  const[view,setView]=useState("dashboard");
+  const[vendor,setVendor]=useState(null);
+  const[orders,setOrders]=useState([]);
+  const[payments,setPayments]=useState([]);
+  const[planModal,setPlanModal]=useState(false);
+  const[stripeModal,setStripeModal]=useState(null); // planId to subscribe to
+  const[loading,setLoading]=useState(true);
+  const[toast,setToast]=useState(null);
+
+  const showToast=(msg,type="success")=>{setToast({msg,type});setTimeout(()=>setToast(null),3000);};
+
+  useEffect(()=>{
+    const load=async()=>{
+      setLoading(true);
+      const{data:v}=await sb.from("vendors").select("*").eq("email",session.email).single();
+      if(v){
+        setVendor(v);
+        const{data:o}=await sb.from("orders").select("*").eq("vendor_id",v.id).order("order_date",{ascending:false});
+        const{data:p}=await sb.from("payments").select("*").eq("vendor_id",v.id).order("created_at",{ascending:false});
+        setOrders(o||[]);
+        setPayments(p||[]);
+      }
+      setLoading(false);
+    };
+    load();
+  },[session]);
+
+  const savePlan=async(planId)=>{
+    // Open Stripe payment modal for the new plan
+    setStripeModal(planId);
+    setPlanModal(false);
+  };
+
+  const onSubscribeSuccess=async(planId)=>{
+    const p=planOf(planId);
+    setVendor(v=>({...v,plan:planId,payout_rate:p.payout}));
+    showToast(`Plan updated to ${p.name} — subscription active!`);
+  };
+
+  if(loading)return<div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",background:S.bg}}><Spin/></div>;
+  if(!vendor)return<div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",background:S.bg,flexDirection:"column",gap:12}}><p style={{color:S.red}}>No vendor account found for {session.email}</p><Btn onClick={onLogout}>Back to Login</Btn></div>;
+
+  const p=planOf(vendor.plan);
+  const now=new Date();
+  const period=now.toLocaleString("en-AU",{month:"long",year:"numeric"});
+  const monthOrders=orders.filter(o=>o.period===period);
+  const monthItems=monthOrders.reduce((s,o)=>s+(o.quantity||0),0);
+  const monthPayout=monthItems*(vendor.payout_rate||10);
+  const monthRev=monthOrders.reduce((s,o)=>s+(o.revenue||0),0);
+
+  const NAV=[["dashboard","Overview","◈"],["sales","Sales","◆"],["payouts","Payouts","⬡"],["myplan","My Plan","★"],["settings","Settings","◎"]];
+
+  return(
+    <div style={{background:S.bg,minHeight:"100vh",maxWidth:480,margin:"0 auto"}}>
+      {toast&&<div style={{position:"fixed",top:16,left:"50%",transform:"translateX(-50%)",background:toast.type==="success"?S.green:S.red,color:"#000",padding:"10px 20px",borderRadius:10,fontWeight:700,fontSize:13,zIndex:300}}>{toast.msg}</div>}
+
+      <div style={{background:"rgba(10,10,15,0.97)",borderBottom:`1px solid ${S.border}`,padding:"12px 18px",display:"flex",justifyContent:"space-between",alignItems:"center",position:"sticky",top:0,zIndex:50}}>
+        <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <div style={{width:34,height:34,borderRadius:"50%",background:p.col,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:900,fontSize:14,color:"#000"}}>{vendor.brand_name?.[0]||"V"}</div>
+          <div><p style={{fontWeight:700,fontSize:13,color:S.text}}>{vendor.brand_name||vendor.store_name}</p><p style={{color:S.muted,fontSize:9}}>Vendor Portal</p></div>
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <Tag color={p.col}>{p.name}</Tag>
+          <button onClick={onLogout} style={{background:"rgba(255,255,255,0.06)",border:`1px solid ${S.border}`,borderRadius:8,padding:"5px 10px",color:S.muted,fontSize:11,cursor:"pointer",fontFamily:"inherit"}}>Sign out</button>
+        </div>
+      </div>
+
+      <div style={{background:"rgba(10,10,15,0.97)",borderBottom:`1px solid ${S.border}`,display:"flex",overflowX:"auto",padding:"0 14px"}}>
+        {NAV.map(([id,label,icon])=><button key={id} onClick={()=>setView(id)} style={{padding:"11px 12px",background:"none",border:"none",borderBottom:`2px solid ${view===id?S.accent:"transparent"}`,color:view===id?S.accent:S.muted,fontWeight:view===id?700:500,fontSize:12,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>{icon} {label}</button>)}
+      </div>
+
+      <div style={{padding:"20px 18px 100px"}}>
+
+        {view==="dashboard"&&(
+          <div style={{display:"flex",flexDirection:"column",gap:20}}>
+            <div><p style={{color:S.text,fontWeight:900,fontSize:20,fontFamily:"monospace"}}>Welcome back, {vendor.name?.split(" ")[0]} 👋</p><p style={{color:S.muted,fontSize:12,marginTop:2}}>{period}</p></div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+              <Stat label="Items Sold" value={monthItems} sub="This month"/>
+              <Stat label="Your Payout" value={fmt(monthPayout)} sub={`$${vendor.payout_rate||10} × ${monthItems}`} color={S.green}/>
+              <Stat label="Store Revenue" value={fmt(monthRev)} sub="Gross sales"/>
+              <Stat label="Payout Rate" value={`$${vendor.payout_rate||10}`} sub={`${p.name} plan`} color={p.col}/>
+            </div>
+            <div style={{background:S.faint,borderRadius:16,padding:20}}>
+              <p style={{color:S.muted,fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:6}}>Next Scheduled Payout</p>
+              <p style={{color:S.green,fontWeight:900,fontSize:28,fontFamily:"monospace"}}>{fmt(monthPayout)}</p>
+              <p style={{color:S.muted,fontSize:12,marginTop:4}}>End of {period} · {vendor.bank} ••••{vendor.account_number?.slice(-4)}</p>
+            </div>
+            <div>
+              <p style={{color:S.muted,fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:10}}>Recent Orders</p>
+              {monthOrders.slice(0,5).map(o=>(
+                <div key={o.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"9px 0",borderBottom:`1px solid ${S.border}`}}>
+                  <div><p style={{color:S.text,fontSize:13}}>{o.product_title}</p><p style={{color:S.muted,fontSize:11}}>{fmtD(o.order_date)} · qty {o.quantity}</p></div>
+                  <p style={{color:S.green,fontWeight:700}}>{fmt(o.quantity*(vendor.payout_rate||10))}</p>
+                </div>
+              ))}
+              {monthOrders.length===0&&<p style={{color:S.muted,fontSize:13,textAlign:"center",padding:"20px 0"}}>No orders yet this period</p>}
+            </div>
+          </div>
+        )}
+
+        {view==="sales"&&(
+          <div style={{display:"flex",flexDirection:"column",gap:14}}>
+            <p style={{color:S.text,fontWeight:900,fontSize:20,fontFamily:"monospace"}}>My Sales</p>
+            {orders.length===0?<p style={{color:S.muted,textAlign:"center",padding:"40px 0"}}>No orders yet</p>
+            :orders.map(o=>(
+              <Card key={o.id} style={{padding:14}}>
+                <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
+                  <div><p style={{color:S.text,fontWeight:600,fontSize:13}}>{o.product_title}</p><p style={{color:S.muted,fontSize:11}}>{fmtD(o.order_date)} · qty {o.quantity}</p></div>
+                  <div style={{textAlign:"right"}}><p style={{color:S.green,fontWeight:700}}>{fmt(o.quantity*(vendor.payout_rate||10))}</p><p style={{color:S.muted,fontSize:10}}>payout</p></div>
+                </div>
+                <div style={{display:"flex",gap:14,fontSize:11,color:S.muted}}>
+                  <span>Revenue: <b style={{color:S.text}}>{fmt(o.revenue)}</b></span>
+                  <span>Period: <b style={{color:S.text}}>{o.period}</b></span>
+                </div>
+              </Card>
+            ))}
+          </div>
+        )}
+
+        {view==="payouts"&&(
+          <div style={{display:"flex",flexDirection:"column",gap:14}}>
+            <p style={{color:S.text,fontWeight:900,fontSize:20,fontFamily:"monospace"}}>Payout History</p>
+            <Card>
+              <p style={{fontWeight:700,color:S.text,marginBottom:10}}>Bank on File</p>
+              <RowItem label="Bank" value={vendor.bank||"—"}/>
+              <RowItem label="BSB" value={vendor.bsb||"—"}/>
+              <RowItem label="Account" value={vendor.account_number?`••••${vendor.account_number.slice(-4)}`:"—"}/>
+            </Card>
+            {payments.length===0?<p style={{color:S.muted,textAlign:"center",padding:"30px 0"}}>No payments yet</p>
+            :payments.map(p=>(
+              <div key={p.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"12px 14px",background:S.card,border:`1px solid ${S.border}`,borderRadius:12}}>
+                <div><p style={{color:S.text,fontSize:13,fontWeight:600}}>{p.period}</p><p style={{color:S.muted,fontSize:11}}>{p.items} items · {p.reference} · {fmtD(p.payment_date)}</p></div>
+                <div style={{textAlign:"right"}}><p style={{color:S.green,fontWeight:700,fontSize:16,fontFamily:"monospace"}}>{fmt(p.amount)}</p><Tag color={S.green}>{p.status}</Tag></div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {view==="myplan"&&(
+          <div style={{display:"flex",flexDirection:"column",gap:16}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <p style={{color:S.text,fontWeight:900,fontSize:20,fontFamily:"monospace"}}>My Plan</p>
+              <Btn small onClick={()=>setPlanModal(true)}>Change Plan</Btn>
+            </div>
+            <div style={{border:`2px solid ${p.col}`,borderRadius:18,padding:22}}>
+              <Tag color={p.col}>Current Plan</Tag>
+              <p style={{color:S.text,fontWeight:900,fontSize:26,fontFamily:"monospace",marginTop:8}}>{p.name}</p>
+              <p style={{color:p.col,fontSize:14,fontWeight:700,marginBottom:14}}>${p.payout} per item · ${p.price}/month</p>
+              {p.features.map(f=><div key={f} style={{display:"flex",gap:8,marginBottom:6}}><span style={{color:p.col}}>✓</span><p style={{color:S.muted,fontSize:13}}>{f}</p></div>)}
+            </div>
+            <p style={{color:S.muted,fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em"}}>Other Plans</p>
+            {PLANS.filter(pl=>pl.id!==p.id).map(pl=>(
+              <div key={pl.id} style={{border:`1px solid ${S.border}`,borderRadius:14,padding:16,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <div><div style={{display:"flex",alignItems:"center",gap:8,marginBottom:2}}><p style={{fontWeight:700,color:S.text,fontSize:15}}>{pl.name}</p>{pl.badge&&<Tag color={pl.col}>{pl.badge}</Tag>}</div><p style={{color:pl.col,fontSize:12,fontWeight:600}}>${pl.payout}/item · ${pl.price}/mo</p></div>
+                <Btn small outline color={pl.col} onClick={()=>setPlanModal(true)}>Switch ↗</Btn>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {view==="settings"&&(
+          <div style={{display:"flex",flexDirection:"column",gap:14}}>
+            <p style={{color:S.text,fontWeight:900,fontSize:20,fontFamily:"monospace"}}>Settings</p>
+            {[{s:"Profile",r:[["Brand",vendor.brand_name],["Name",vendor.name],["Email",vendor.email],["Phone",vendor.phone]]},
+              {s:"Address",r:[["Address",vendor.address]]},
+              {s:"Banking",r:[["Bank",vendor.bank],["BSB",vendor.bsb],["Account",vendor.account_number?`••••${vendor.account_number.slice(-4)}`:"—"]]}
+            ].map(({s,r})=>(
+              <Card key={s}>
+                <p style={{fontWeight:700,color:S.text,marginBottom:10}}>{s}</p>
+                {r.map(([l,v])=><RowItem key={l} label={l} value={v||"—"}/>)}
+              </Card>
+            ))}
+          </div>
+        )}
+
+      </div>
+
+      <div style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:480,background:"rgba(10,10,15,0.97)",borderTop:`1px solid ${S.border}`,padding:"9px 6px 12px"}}>
+        <div style={{display:"flex",justifyContent:"space-around"}}>
+          {NAV.map(([id,label,icon])=><button key={id} onClick={()=>setView(id)} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:3,padding:"4px 10px",background:"none",border:"none",cursor:"pointer",opacity:view===id?1:0.35,fontFamily:"inherit"}}><span style={{fontSize:16,color:view===id?S.accent:S.text}}>{icon}</span><span style={{fontSize:9,fontWeight:700,color:view===id?S.accent:S.muted}}>{label}</span></button>)}
+        </div>
+      </div>
+
+      {planModal&&<PlanModal vendor={vendor} onSave={savePlan} onClose={()=>setPlanModal(false)}/>}
+      {stripeModal&&<StripePaymentModal vendor={vendor} planId={stripeModal} onSuccess={onSubscribeSuccess} onClose={()=>setStripeModal(null)}/>}
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ADMIN PORTAL
+// ══════════════════════════════════════════════════════════════════════════════
+function AdminPortal({onLogout}){
+  const[view,setView]=useState("dashboard");
+  const[vendors,setVendors]=useState([]);
+  const[orders,setOrders]=useState([]);
+  const[payments,setPayments]=useState([]);
+  const[detail,setDetail]=useState(null);
+  const[planModal,setPlanModal]=useState(null);
+  const[loading,setLoading]=useState(true);
+  const[toast,setToast]=useState(null);
+
+  const showToast=(msg)=>{setToast(msg);setTimeout(()=>setToast(null),3000);};
+
+  const load=useCallback(async()=>{
+    setLoading(true);
+    const[{data:v},{data:o},{data:p}]=await Promise.all([
+      sb.from("vendors").select("*").order("created_at",{ascending:false}),
+      sb.from("orders").select("*").order("order_date",{ascending:false}),
+      sb.from("payments").select("*").order("created_at",{ascending:false}),
+    ]);
+    setVendors(v||[]);setOrders(o||[]);setPayments(p||[]);
+    setLoading(false);
+  },[]);
+
+  useEffect(()=>{load();},[load]);
+
+  const savePlan=async(vid,planId)=>{
+    const p=planOf(planId);
+    await sb.from("vendors").update({plan:planId,payout_rate:p.payout}).eq("id",vid);
+    await sb.from("subscriptions").upsert({vendor_id:vid,plan:planId,price:p.price,payout_rate:p.payout,status:"active"},{onConflict:"vendor_id"});
+    setVendors(vs=>vs.map(v=>v.id===vid?{...v,plan:planId,payout_rate:p.payout}:v));
+    showToast(`Plan updated to ${p.name}`);
+  };
+
+  const setStatus=async(vid,status)=>{
+    await sb.from("vendors").update({status}).eq("id",vid);
+    setVendors(vs=>vs.map(v=>v.id===vid?{...v,status}:v));
+    showToast(`Vendor ${status}`);
+  };
+
+  const now=new Date();
+  const period=now.toLocaleString("en-AU",{month:"long",year:"numeric"});
+  const activeVendors=vendors.filter(v=>v.status==="active");
+  const totalRev=orders.reduce((s,o)=>s+(o.revenue||0),0);
+  const totalPayout=vendors.reduce((s,v)=>s+orders.filter(o=>o.vendor_id===v.id&&o.period===period).reduce((s2,o)=>s2+(o.quantity||0),0)*(v.payout_rate||10),0);
+  const totalMRR=activeVendors.reduce((s,v)=>s+planOf(v.plan).price,0);
+
+  const vd=detail?vendors.find(v=>v.id===detail):null;
+
+  const NAV=[["dashboard","Dashboard","◈"],["vendors","Vendors","⬡"],["payments","Payments","◆"],["orders","Orders","◎"],["plans","Plans","★"]];
+
+  if(loading)return<div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",background:S.bg}}><Spin/></div>;
+
+  return(
+    <div style={{background:S.bg,minHeight:"100vh"}}>
+      {toast&&<div style={{position:"fixed",top:16,left:"50%",transform:"translateX(-50%)",background:S.green,color:"#000",padding:"10px 20px",borderRadius:10,fontWeight:700,fontSize:13,zIndex:300}}>✓ {toast}</div>}
+
+      <div style={{background:"rgba(10,10,15,0.97)",borderBottom:`1px solid ${S.border}`,padding:"13px 22px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <div style={{width:32,height:32,borderRadius:8,background:S.green,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16}}>⬡</div>
+          <div><p style={{fontFamily:"monospace",fontWeight:900,fontSize:14,color:S.text}}>MERCH ON DEMAND</p><p style={{color:S.muted,fontSize:10}}>Admin Portal</p></div>
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <div style={{width:7,height:7,borderRadius:"50%",background:S.green,boxShadow:`0 0 6px ${S.green}`}}/>
+          <span style={{color:S.muted,fontSize:10}}>Live · Supabase</span>
+          <button onClick={load} style={{background:"rgba(255,255,255,0.06)",border:`1px solid ${S.border}`,borderRadius:8,padding:"5px 10px",color:S.muted,fontSize:11,cursor:"pointer",fontFamily:"inherit"}}>↻ Refresh</button>
+          <button onClick={onLogout} style={{background:"rgba(255,255,255,0.06)",border:`1px solid ${S.border}`,borderRadius:8,padding:"5px 10px",color:S.muted,fontSize:11,cursor:"pointer",fontFamily:"inherit"}}>Sign out</button>
+        </div>
+      </div>
+
+      <div style={{background:"rgba(10,10,15,0.97)",borderBottom:`1px solid ${S.border}`,display:"flex",overflowX:"auto",padding:"0 18px"}}>
+        {NAV.map(([id,label,icon])=><button key={id} onClick={()=>{setView(id);setDetail(null);}} style={{padding:"11px 16px",background:"none",border:"none",borderBottom:`2px solid ${view===id?S.green:"transparent"}`,color:view===id?S.green:S.muted,fontWeight:view===id?700:500,fontSize:12,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>{icon} {label}</button>)}
+      </div>
+
+      <div style={{padding:"22px",maxWidth:960,margin:"0 auto"}}>
+
+        {view==="dashboard"&&(
+          <div style={{display:"flex",flexDirection:"column",gap:20}}>
+            <div><p style={{fontFamily:"monospace",fontSize:22,fontWeight:900,color:S.text}}>Overview</p><p style={{color:S.muted,fontSize:12,marginTop:3}}>{period} · All vendors</p></div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+              <Stat label="Total Revenue" value={fmt(totalRev)} sub={`${orders.length} orders`} color={S.green}/>
+              <Stat label="Vendor Payouts" value={fmt(totalPayout)} sub="Pending this month" color={S.amber}/>
+              <Stat label="Subscription MRR" value={fmt(totalMRR)} sub={`${activeVendors.length} active`} color="#A78BFA"/>
+              <Stat label="Total Vendors" value={vendors.length} sub={`${activeVendors.length} active`}/>
+            </div>
+            <Card>
+              <p style={{fontWeight:700,color:S.text,marginBottom:14,fontFamily:"monospace"}}>Plan Distribution</p>
+              {PLANS.map(pl=>{const count=vendors.filter(v=>v.plan===pl.id&&v.status==="active").length;const pct=activeVendors.length>0?(count/activeVendors.length)*100:0;return(
+                <div key={pl.id} style={{marginBottom:12}}>
+                  <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}><span style={{color:S.text,fontSize:13,fontWeight:600}}>{pl.name}</span><span style={{color:pl.col,fontSize:13,fontWeight:700}}>{count} vendor{count!==1?"s":""} · ${pl.price}/mo</span></div>
+                  <div style={{height:6,background:S.faint,borderRadius:99,overflow:"hidden"}}><div style={{height:6,width:`${pct}%`,background:pl.col,borderRadius:99}}/></div>
+                </div>
+              );})}
+            </Card>
+            <Card>
+              <p style={{fontWeight:700,color:S.text,marginBottom:14,fontFamily:"monospace"}}>Recent Orders</p>
+              {orders.slice(0,6).map(o=>{const v=vendors.find(x=>x.id===o.vendor_id);return(
+                <div key={o.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:`1px solid ${S.border}`}}>
+                  <div><p style={{color:S.text,fontSize:13}}>{o.product_title}</p><p style={{color:S.muted,fontSize:11}}>{v?.brand_name||v?.store_name||"Unknown"} · {fmtD(o.order_date)}</p></div>
+                  <div style={{textAlign:"right"}}><p style={{color:S.green,fontWeight:700}}>{fmt(o.revenue)}</p><p style={{color:S.muted,fontSize:10}}>qty {o.quantity}</p></div>
+                </div>
+              );})}
+              {orders.length===0&&<p style={{color:S.muted,fontSize:13,textAlign:"center",padding:"20px 0"}}>No orders yet — sync Shopify to populate</p>}
+            </Card>
+          </div>
+        )}
+
+        {view==="vendors"&&!vd&&(
+          <div style={{display:"flex",flexDirection:"column",gap:14}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}><p style={{fontFamily:"monospace",fontSize:22,fontWeight:900,color:S.text}}>Vendors</p><span style={{color:S.muted,fontSize:13}}>{vendors.length} total</span></div>
+            {vendors.length===0&&<p style={{color:S.muted,textAlign:"center",padding:"40px 0"}}>No vendors yet — they'll appear here once they complete onboarding</p>}
+            {vendors.map(v=>{const pl=planOf(v.plan);const vOrders=orders.filter(o=>o.vendor_id===v.id&&o.period===period);const payout=vOrders.reduce((s,o)=>s+(o.quantity||0),0)*(v.payout_rate||10);return(
+              <div key={v.id} style={{background:S.card,border:`1px solid ${S.border}`,borderRadius:14,padding:18,cursor:"pointer"}} onClick={()=>setDetail(v.id)}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
+                  <div style={{display:"flex",gap:12,alignItems:"center"}}>
+                    <div style={{width:38,height:38,borderRadius:10,background:pl.col+"22",border:`1.5px solid ${pl.col}44`,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:900,fontSize:15,color:pl.col}}>{(v.brand_name||v.store_name||"V")[0]}</div>
+                    <div>
+                      <div style={{display:"flex",alignItems:"center",gap:8}}><p style={{color:S.text,fontWeight:700,fontSize:14}}>{v.brand_name||v.store_name}</p><Tag color={v.status==="active"?S.green:v.status==="pending"?S.amber:S.muted}>{v.status}</Tag></div>
+                      <p style={{color:S.muted,fontSize:12}}>{v.name} · {v.email}</p>
+                    </div>
+                  </div>
+                  <div style={{textAlign:"right"}}><Tag color={pl.col}>{pl.name}</Tag><p style={{color:S.green,fontWeight:700,fontSize:16,marginTop:4,fontFamily:"monospace"}}>{fmt(payout)}</p><p style={{color:S.muted,fontSize:10}}>payout due</p></div>
+                </div>
+                <div style={{display:"flex",gap:16,fontSize:11,color:S.muted}}>
+                  <span>{vOrders.reduce((s,o)=>s+(o.quantity||0),0)} items this month</span>
+                  <span>Joined: {fmtD(v.created_at)}</span>
+                </div>
+              </div>
+            );})}
+          </div>
+        )}
+
+        {view==="vendors"&&vd&&(
+          <div style={{display:"flex",flexDirection:"column",gap:16}}>
+            <div style={{display:"flex",gap:10,alignItems:"center"}}>
+              <Btn small outline onClick={()=>setDetail(null)}>← Back</Btn>
+              <div><p style={{fontFamily:"monospace",fontSize:18,fontWeight:900,color:S.text}}>{vd.brand_name||vd.store_name}</p><p style={{color:S.muted,fontSize:12}}>{vd.name} · {vd.email}</p></div>
+            </div>
+            <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+              <Btn small color={S.green} onClick={()=>setPlanModal(vd.id)}>Change Plan</Btn>
+              {vd.status==="active"?<Btn small outline color={S.amber} onClick={()=>setStatus(vd.id,"paused")}>Pause</Btn>:<Btn small outline color={S.green} onClick={()=>setStatus(vd.id,"active")}>Activate</Btn>}
+              <Btn small outline color={S.red} onClick={()=>setStatus(vd.id,"removed")}>Remove</Btn>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+              {(()=>{const vOrders=orders.filter(o=>o.vendor_id===vd.id&&o.period===period);const qty=vOrders.reduce((s,o)=>s+(o.quantity||0),0);return(<>
+                <Stat label="Items This Month" value={qty} sub={period}/>
+                <Stat label="Payout Due" value={fmt(qty*(vd.payout_rate||10))} sub={`$${vd.payout_rate||10}/item`} color={S.green}/>
+                <Stat label="Total Orders" value={orders.filter(o=>o.vendor_id===vd.id).length} sub="All time"/>
+                <Stat label="Plan" value={planOf(vd.plan).name} sub={`$${planOf(vd.plan).price}/mo`} color={planOf(vd.plan).col}/>
+              </>);})()}
+            </div>
+            {[{t:"Contact",r:[["Name",vd.name],["Email",vd.email],["Phone",vd.phone],["Address",vd.address]]},
+              {t:"Banking",r:[["Bank",vd.bank],["BSB",vd.bsb],["Account",vd.account_number?`••••${vd.account_number.slice(-4)}`:"—"],["Account Name",vd.account_name]]},
+              {t:"Store",r:[["Collection",vd.collection_name||vd.collection_id],["Status",vd.status],["Joined",fmtD(vd.created_at)]]}
+            ].map(({t,r})=>(
+              <Card key={t}><p style={{fontWeight:700,color:S.text,marginBottom:10}}>{t}</p>{r.map(([l,v])=><RowItem key={l} label={l} value={v||"—"}/>)}</Card>
+            ))}
+          </div>
+        )}
+
+        {view==="payments"&&(
+          <div style={{display:"flex",flexDirection:"column",gap:14}}>
+            <p style={{fontFamily:"monospace",fontSize:22,fontWeight:900,color:S.text}}>Payments</p>
+            {payments.length===0?<p style={{color:S.muted,textAlign:"center",padding:"40px 0"}}>No payments yet</p>
+            :payments.map((p,i)=>(
+              <div key={p.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 18px",background:S.card,border:`1px solid ${S.border}`,borderRadius:14}}>
+                <div><p style={{color:S.text,fontWeight:600,fontSize:14}}>{p.vendor_name}</p><p style={{color:S.muted,fontSize:12}}>{p.period} · {p.items} items · {p.reference} · {fmtD(p.payment_date)}</p></div>
+                <div style={{textAlign:"right"}}><p style={{color:S.green,fontWeight:700,fontSize:18,fontFamily:"monospace"}}>{fmt(p.amount)}</p><Tag color={S.green}>{p.status}</Tag></div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {view==="orders"&&(
+          <div style={{display:"flex",flexDirection:"column",gap:14}}>
+            <p style={{fontFamily:"monospace",fontSize:22,fontWeight:900,color:S.text}}>All Orders</p>
+            {orders.length===0?<p style={{color:S.muted,textAlign:"center",padding:"40px 0"}}>No orders yet — sync Shopify in the payout app</p>
+            :orders.map(o=>{const v=vendors.find(x=>x.id===o.vendor_id);return(
+              <div key={o.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"12px 18px",background:S.card,border:`1px solid ${S.border}`,borderRadius:14}}>
+                <div><p style={{color:S.text,fontSize:13}}>{o.product_title}</p><p style={{color:S.muted,fontSize:11}}>{v?.brand_name||v?.store_name||"Unknown"} · {fmtD(o.order_date)} · qty {o.quantity}</p></div>
+                <div style={{textAlign:"right"}}><p style={{color:S.green,fontWeight:700}}>{fmt(o.revenue)}</p><p style={{color:S.muted,fontSize:10}}>payout: {fmt(o.quantity*(v?.payout_rate||10))}</p></div>
+              </div>
+            );})}
+          </div>
+        )}
+
+        {view==="plans"&&(
+          <div style={{display:"flex",flexDirection:"column",gap:16}}>
+            <p style={{fontFamily:"monospace",fontSize:22,fontWeight:900,color:S.text}}>Plan Management</p>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12}}>
+              {PLANS.map(pl=>{const count=vendors.filter(v=>v.plan===pl.id&&v.status==="active").length;return(
+                <div key={pl.id} style={{background:S.card,border:`2px solid ${pl.col}33`,borderRadius:16,padding:16}}>
+                  <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}><p style={{fontFamily:"monospace",fontWeight:900,fontSize:16,color:pl.col}}>{pl.name}</p>{pl.badge&&<Tag color={pl.col}>{pl.badge}</Tag>}</div>
+                  <p style={{color:S.text,fontFamily:"monospace",fontSize:22,fontWeight:900}}>${pl.price}<span style={{fontSize:11,color:S.muted}}>/mo</span></p>
+                  <p style={{color:pl.col,fontSize:13,fontWeight:700,marginBottom:10}}>${pl.payout}/item</p>
+                  <div style={{paddingTop:10,borderTop:`1px solid ${S.border}`}}>
+                    <div style={{display:"flex",justifyContent:"space-between",marginBottom:5}}><span style={{color:S.muted,fontSize:12}}>Vendors</span><span style={{color:S.text,fontWeight:700}}>{count}</span></div>
+                    <div style={{display:"flex",justifyContent:"space-between"}}><span style={{color:S.muted,fontSize:12}}>MRR</span><span style={{color:S.green,fontWeight:700}}>{fmt(count*pl.price)}</span></div>
+                  </div>
+                </div>
+              );})}
+            </div>
+            <Card>
+              <p style={{fontWeight:700,color:S.text,marginBottom:12,fontFamily:"monospace"}}>Vendor Assignments</p>
+              {vendors.map(v=>{const pl=planOf(v.plan);return(
+                <div key={v.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"11px 0",borderBottom:`1px solid ${S.border}`}}>
+                  <div style={{display:"flex",alignItems:"center",gap:10}}>
+                    <div style={{width:30,height:30,borderRadius:8,background:pl.col+"22",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:900,color:pl.col,fontSize:13}}>{(v.brand_name||v.store_name||"V")[0]}</div>
+                    <div><p style={{color:S.text,fontWeight:600,fontSize:13}}>{v.brand_name||v.store_name}</p><Tag color={v.status==="active"?S.green:S.muted}>{v.status}</Tag></div>
+                  </div>
+                  <div style={{display:"flex",alignItems:"center",gap:8}}><Tag color={pl.col}>{pl.name} · ${pl.price}/mo</Tag><Btn small outline color={S.green} onClick={()=>setPlanModal(v.id)}>Change</Btn></div>
+                </div>
+              );})}
+            </Card>
+          </div>
+        )}
+
+      </div>
+
+      {planModal&&<PlanModal vendor={vendors.find(v=>v.id===planModal)} onSave={(pid)=>savePlan(planModal,pid)} onClose={()=>setPlanModal(null)}/>}
+    </div>
+  );
+}
+
+// ── Stripe subscription creator ──────────────────────────────────────────────
+async function createStripeSubscription(email, name, planId, cardElement) {
+  const stripe = Stripe(STRIPE_PK);
+  const priceId = PRICE_IDS[planId];
+  if (!priceId) throw new Error("Invalid plan");
+
+  const { paymentMethod, error } = await stripe.createPaymentMethod({
+    type: "card", card: cardElement,
+    billing_details: { email, name },
+  });
+  if (error) throw new Error(error.message);
+
+  const res = await fetch(PROXY + "/stripe/subscribe", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, name, priceId, paymentMethodId: paymentMethod.id }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Subscription failed");
+
+  if (data.clientSecret) {
+    const { error: ce } = await stripe.confirmCardPayment(data.clientSecret);
+    if (ce) throw new Error(ce.message);
+  }
+  return data;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// LOGIN
+// ══════════════════════════════════════════════════════════════════════════════
+function Login({onLogin}){
+  const[role,setRole]=useState("vendor");
+  const[email,setEmail]=useState("");
+  const[pass,setPass]=useState("");
+  const[err,setErr]=useState("");
+  const[loading,setLoading]=useState(false);
+
+  const handle=async()=>{
+    setLoading(true);setErr("");
+    if(role==="admin"){
+      if(email==="admin@merchantondemand.com.au"&&pass==="admin123"){
+        onLogin({role:"admin",email});
+      } else {
+        setErr("Invalid admin credentials");
+      }
+      setLoading(false);return;
+    }
+    // Vendor login — check Supabase
+    const{data,error}=await sb.from("vendors").select("id,email,name,status").eq("email",email.toLowerCase().trim()).single();
+    if(error||!data){setErr("No vendor account found for this email. Please complete onboarding first.");setLoading(false);return;}
+    if(data.status==="pending"){setErr("Your account is pending approval. We'll be in touch within 1-2 business days.");setLoading(false);return;}
+    onLogin({role:"vendor",email:data.email,vendorId:data.id});
+    setLoading(false);
+  };
+
+  const iS={width:"100%",padding:"11px 13px",background:"rgba(255,255,255,0.05)",border:`1px solid ${S.border}`,borderRadius:10,fontSize:14,color:S.text,fontFamily:"inherit",outline:"none",boxSizing:"border-box"};
+
+  return(
+    <div style={{minHeight:"100vh",background:S.bg,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+      <div style={{maxWidth:400,width:"100%"}}>
+        <div style={{textAlign:"center",marginBottom:32}}>
+          <div style={{width:52,height:52,borderRadius:14,background:S.green,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 12px",fontSize:24}}>⬡</div>
+          <p style={{fontFamily:"monospace",fontWeight:900,fontSize:20,color:S.text}}>MERCH ON DEMAND</p>
+          <p style={{color:S.muted,fontSize:12,marginTop:3}}>Portal Login</p>
+        </div>
+
+        <div style={{display:"flex",background:"rgba(255,255,255,0.03)",border:`1px solid ${S.border}`,borderRadius:12,padding:4,marginBottom:20}}>
+          {["vendor","admin"].map(r=><button key={r} onClick={()=>setRole(r)} style={{flex:1,padding:10,border:"none",borderRadius:9,background:role===r?S.green:"transparent",color:role===r?"#000":S.muted,fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit",textTransform:"capitalize"}}>{r==="admin"?"🔧 Admin":"🏪 Vendor"}</button>)}
+        </div>
+
+        <Card style={{marginBottom:14}}>
+          <div style={{marginBottom:14}}>
+            <label style={{display:"block",fontSize:10,fontWeight:700,color:S.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:5}}>Email</label>
+            <input value={email} onChange={e=>setEmail(e.target.value)} placeholder="your@email.com" type="email" style={iS} onFocus={e=>e.target.style.borderColor=S.green} onBlur={e=>e.target.style.borderColor=S.border}/>
+          </div>
+          {role==="admin"&&<div style={{marginBottom:16}}>
+            <label style={{display:"block",fontSize:10,fontWeight:700,color:S.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:5}}>Password</label>
+            <input value={pass} onChange={e=>setPass(e.target.value)} placeholder="••••••••" type="password" style={iS} onFocus={e=>e.target.style.borderColor=S.green} onBlur={e=>e.target.style.borderColor=S.border} onKeyDown={e=>e.key==="Enter"&&handle()}/>
+          </div>}
+          {role==="vendor"&&<p style={{color:S.muted,fontSize:11,marginBottom:14,lineHeight:1.6}}>Enter your email address to access your vendor dashboard. No password needed — we verify against your onboarding details.</p>}
+          {err&&<p style={{color:S.red,fontSize:12,marginBottom:12}}>⚠ {err}</p>}
+          <Btn onClick={handle} disabled={loading||!email} full color={S.green}>
+            {loading?<Spin/>:"Sign In →"}
+          </Btn>
+        </Card>
+
+        <div style={{background:"rgba(255,255,255,0.02)",border:`1px solid ${S.border}`,borderRadius:12,padding:14}}>
+          <p style={{color:S.muted,fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8}}>Demo Access</p>
+          {[["🔧 Admin","admin@merchantondemand.com.au","admin123","admin"],["🏪 Vendor (demo)","vendor@demo.com","","vendor"]].map(([name,em,pw,rl])=>(
+            <button key={em} onClick={()=>{setEmail(em);setPass(pw);setRole(rl);}} style={{display:"flex",justifyContent:"space-between",alignItems:"center",width:"100%",padding:"8px 10px",background:"rgba(255,255,255,0.03)",border:`1px solid ${S.border}`,borderRadius:8,cursor:"pointer",fontFamily:"inherit",marginBottom:6}}>
+              <span style={{color:S.green,fontSize:12,fontWeight:700}}>{name}</span>
+              <span style={{color:S.muted,fontSize:11}}>{em}</span>
+            </button>
+          ))}
+          <p style={{color:S.muted,fontSize:10,marginTop:6,textAlign:"center"}}>Admin password: admin123 · Vendors log in with their onboarding email</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Root ──────────────────────────────────────────────────────────────────────
+function App(){
+  const[session,setSession]=useState(null);
+  if(!session)return <Login onLogin={s=>setSession(s)}/>;
+  if(session.role==="admin")return <AdminPortal onLogout={()=>setSession(null)}/>;
+  return <VendorPortal session={session} onLogout={()=>setSession(null)}/>;
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>

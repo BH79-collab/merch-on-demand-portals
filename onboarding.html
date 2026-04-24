@@ -11,330 +11,129 @@
 <script src="https://js.stripe.com/v3/"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{background:#FAF8F4;font-family:'Segoe UI',sans-serif}
+body{background:#FAF8F4;font-family:'Segoe UI',sans-serif;color:#1A1714}
 @keyframes spin{to{transform:rotate(360deg)}}
 input,select,textarea{font-family:inherit}
 ::-webkit-scrollbar{width:4px}
 ::-webkit-scrollbar-thumb{background:#E8E4DC;border-radius:2px}
 select option{background:white;color:#1A1714}
+#stripe-card-el{padding:12px 14px;background:#F0EDE8;border:1.5px solid #E8E4DC;border-radius:10px;min-height:46px;transition:border-color 0.15s}
 </style>
 </head>
 <body>
+<div id="stripe-card-el" style="display:none;position:absolute;left:-9999px"></div>
 <div id="root"></div>
-<div id="stripe-card-always" style="display:none;padding:12px 14px;background:#F0EDE8;border:1.5px solid #E8E4DC;border-radius:10px;min-height:44px;margin-bottom:0"></div>
-<script type="text/babel">
 
+<script>
+// ── Stripe — mounted once in plain JS, never touches React ──────────────────
+var _stripe=null, _card=null, _cardReady=false;
+window.addEventListener('load',function(){
+  _stripe=Stripe('pk_live_51O2OzhLgoqGtM7YGmzxSIZM6XNNfgJGpfIQYYcoT7JnFneionzk0gFfn0S8AiqvJZDhGI0zj2qQ28FvPF2Z0fFs7006Y2B3SXR');
+  var els=_stripe.elements();
+  _card=els.create('card',{style:{base:{color:'#1A1714',fontFamily:'Segoe UI,sans-serif',fontSize:'15px','::placeholder':{color:'#8C8580'}},invalid:{color:'#D4521A'}}});
+  _card.mount('#stripe-card-el');
+  _card.on('change',function(e){
+    _cardReady=!e.empty&&!e.error;
+    window.dispatchEvent(new CustomEvent('stripeready',{detail:_cardReady}));
+  });
+});
+window.mountStripeCard=function(targetId){
+  var el=document.getElementById(targetId);
+  var card=document.getElementById('stripe-card-el');
+  if(el&&card){el.appendChild(card);card.style.display='block';card.style.position='static';card.style.left='auto';}
+};
+window.unmountStripeCard=function(){
+  var card=document.getElementById('stripe-card-el');
+  if(card){document.body.appendChild(card);card.style.display='none';card.style.position='absolute';card.style.left='-9999px';}
+};
+window.getStripe=function(){return _stripe;};
+window.getCard=function(){return _card;};
+window.isCardReady=function(){return _cardReady;};
+</script>
+
+<script type="text/babel">
 // ── Config ────────────────────────────────────────────────────────────────────
 const SUPA_URL  = "https://xwennpgxsndjpbwdmcwk.supabase.co";
 const SUPA_KEY  = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh3ZW5ucGd4c25kanBid2RtY3drIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY5ODc1MjksImV4cCI6MjA5MjU2MzUyOX0.LAyCQtlsF9puLftwyK67qwsYED7PksZeP3QoD0lmuTA";
-const STRIPE_PK = "pk_live_51O2OzhLgoqGtM7YGmzxSIZM6XNNfgJGpfIQYYcoT7JnFneionzk0gFfn0S8AiqvJZDhGI0zj2qQ28FvPF2Z0fFs7006Y2B3SXR";
 const PROXY     = "https://shopify-proxy-production-c72c.up.railway.app";
-const PRICE_IDS = {
-  starter: "price_1TPZnhLgoqGtM7YGeJD5rUrp",
-  growth:  "price_1TPZplLgoqGtM7YGhboA3FYp",
-  pro:     "price_1TPZq1LgoqGtM7YGtx7koBm2",
-};
-
+const PRICE_IDS = {starter:"price_1TPZnhLgoqGtM7YGeJD5rUrp",growth:"price_1TPZplLgoqGtM7YGhboA3FYp",pro:"price_1TPZq1LgoqGtM7YGtx7koBm2"};
 const sb = supabase.createClient(SUPA_URL, SUPA_KEY);
 
-// Single global Stripe instance — lazy init to ensure Stripe.js is loaded
-let _stripe = null;
-const getStripe = () => { if (!_stripe) _stripe = Stripe(STRIPE_PK); return _stripe; };
-
-// ── Design tokens ─────────────────────────────────────────────────────────────
-const T = {
-  bg:"#FAF8F4", surface:"#FFFFFF", border:"#E8E4DC",
-  ink:"#1A1714", muted:"#8C8580", faint:"#F0EDE8",
-  accent:"#D4521A", accentBg:"#FDF1EB", accentBorder:"#F0C4A8",
-  green:"#2A7A4B", greenBg:"#EBF5EF",
-};
-
-const PLANS = [
-  { id:"starter", name:"Starter", price:29.95, payout:10, colour:T.ink,    badge:null,
-    features:["Up to 3 products","$10 per item sold","DTF print","Monthly payout","Email support"] },
-  { id:"growth",  name:"Growth",  price:59.95, payout:12, colour:T.accent, badge:"POPULAR",
-    features:["Up to 10 products","$12 per item sold","DTF print","Priority payout","Full analytics","Priority support","Featured placement"] },
-  { id:"pro",     name:"Pro",     price:99.95, payout:15, colour:"#8B5CF6",badge:"BEST VALUE",
-    features:["Unlimited products","$15 per item sold","DTF + Embroidery","Weekly payout","Advanced analytics","Dedicated manager","Homepage feature"] },
+// ── AS Colour Catalogue — hardcoded, swaps to live Shopify when token set ────
+const AS_CATALOGUE = [
+  { id:"5001", shopifyId:"5001", name:"AS Colour 5001 — Mens Staple Tee",      category:"Mens Tee",
+    colours:[{n:"White",h:"#FFFFFF"},{n:"Black",h:"#1A1714"},{n:"Navy",h:"#1B2A4A"},{n:"Forest",h:"#2D4A35"},{n:"Slate",h:"#6B7A8D"},{n:"Bone",h:"#E8DFD0"},{n:"Ash",h:"#C8C4BC"},{n:"Clay",h:"#B5734A"},{n:"Dusty Blue",h:"#7EA3B8"},{n:"Washed Black",h:"#3A3735"},{n:"Mauve",h:"#B8849A"},{n:"Military Green",h:"#5C6B4A"},{n:"Maroon",h:"#6B2035"},{n:"Red",h:"#C0392B"},{n:"Royal",h:"#2A5FA5"}],
+    sizes:["XS","S","M","L","XL","2XL","3XL","4XL","5XL"] },
+  { id:"3005", shopifyId:"3005", name:"AS Colour 3005 — Kids Staple Tee",      category:"Kids Tee",
+    colours:[{n:"White",h:"#FFFFFF"},{n:"Black",h:"#1A1714"},{n:"Navy",h:"#1B2A4A"},{n:"Forest",h:"#2D4A35"},{n:"Ash",h:"#C8C4BC"},{n:"Bone",h:"#E8DFD0"},{n:"Red",h:"#C0392B"},{n:"Royal",h:"#2A5FA5"}],
+    sizes:["2","4","6","8","10","12","14"] },
+  { id:"5101", shopifyId:"5101", name:"AS Colour 5101 — Womens Staple Tee",    category:"Womens Tee",
+    colours:[{n:"White",h:"#FFFFFF"},{n:"Black",h:"#1A1714"},{n:"Navy",h:"#1B2A4A"},{n:"Forest",h:"#2D4A35"},{n:"Slate",h:"#6B7A8D"},{n:"Bone",h:"#E8DFD0"},{n:"Dusty Blue",h:"#7EA3B8"},{n:"Mauve",h:"#B8849A"},{n:"Clay",h:"#B5734A"}],
+    sizes:["XS","S","M","L","XL","2XL"] },
+  { id:"5100", shopifyId:"5100", name:"AS Colour 5100 — Supply Hoodie",        category:"Hoodie",
+    colours:[{n:"White",h:"#FFFFFF"},{n:"Black",h:"#1A1714"},{n:"Navy",h:"#1B2A4A"},{n:"Forest",h:"#2D4A35"},{n:"Ash",h:"#C8C4BC"},{n:"Bone",h:"#E8DFD0"},{n:"Slate",h:"#6B7A8D"},{n:"Military Green",h:"#5C6B4A"}],
+    sizes:["XS","S","M","L","XL","2XL","3XL"] },
+  { id:"5102", shopifyId:"5102", name:"AS Colour 5102 — Stencil Hoodie",       category:"Hoodie",
+    colours:[{n:"White",h:"#FFFFFF"},{n:"Black",h:"#1A1714"},{n:"Navy",h:"#1B2A4A"},{n:"Forest",h:"#2D4A35"},{n:"Ash",h:"#C8C4BC"}],
+    sizes:["XS","S","M","L","XL","2XL","3XL"] },
+  { id:"1001", shopifyId:"1001", name:"AS Colour 1001 — Classic Cap",          category:"Cap",
+    colours:[{n:"White",h:"#FFFFFF"},{n:"Black",h:"#1A1714"},{n:"Navy",h:"#1B2A4A"},{n:"Forest",h:"#2D4A35"},{n:"Khaki",h:"#8B7355"},{n:"Red",h:"#C0392B"}],
+    sizes:["One Size"] },
 ];
 
-const STEPS = [
-  {id:"brand",   label:"Brand",   icon:"◆"},
-  {id:"contact", label:"Contact", icon:"◎"},
-  {id:"bank",    label:"Banking", icon:"⬡"},
-  {id:"plan",    label:"Plan",    icon:"★"},
-  {id:"payment", label:"Payment", icon:"💳"},
-  {id:"design",  label:"Design",  icon:"✦"},
-  {id:"review",  label:"Review",  icon:"◈"},
+const PLANS=[
+  {id:"starter",name:"Starter",price:29.95,payout:10,col:"#2A7A4B",maxProducts:3,features:["Up to 3 products","$10 per item sold","DTF print","Monthly payout","Email support"]},
+  {id:"growth", name:"Growth", price:59.95,payout:12,col:"#D4521A",maxProducts:10,badge:"POPULAR",features:["Up to 10 products","$12 per item sold","DTF print","Priority payout","Full analytics","Priority support","Featured placement"]},
+  {id:"pro",    name:"Pro",    price:99.95,payout:15,col:"#8B5CF6",maxProducts:999,badge:"BEST VALUE",features:["Unlimited products","$15 per item sold","DTF + Embroidery","Weekly payout","Advanced analytics","Dedicated manager","Homepage feature"]},
 ];
+const planOf=id=>PLANS.find(p=>p.id===id)||PLANS[0];
 
-const {useState, useRef, useEffect} = React;
+const STEPS=[{id:"brand",label:"Brand",icon:"◆"},{id:"contact",label:"Contact",icon:"◎"},{id:"bank",label:"Banking",icon:"⬡"},{id:"plan",label:"Plan",icon:"★"},{id:"payment",label:"Payment",icon:"💳"},{id:"design",label:"Design",icon:"✦"},{id:"review",label:"Review",icon:"◈"}];
+
+const T={bg:"#FAF8F4",surface:"#FFFFFF",border:"#E8E4DC",ink:"#1A1714",muted:"#8C8580",faint:"#F0EDE8",accent:"#D4521A",accentBg:"#FDF1EB",accentBorder:"#F0C4A8",green:"#2A7A4B",greenBg:"#EBF5EF"};
+
+const {useState,useRef,useEffect,useCallback}=React;
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+const readFileAsDataURL=file=>new Promise(res=>{const r=new FileReader();r.onload=e=>res(e.target.result);r.readAsDataURL(file);});
 
 // ── Atoms ─────────────────────────────────────────────────────────────────────
 function Spin(){return <span style={{display:"inline-block",width:14,height:14,border:"2px solid rgba(26,23,20,0.15)",borderTopColor:T.ink,borderRadius:"50%",animation:"spin 0.7s linear infinite"}}/>;}
-
-function Label({children,required}){
-  return <label style={{display:"block",fontSize:11,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:6}}>{children}{required&&<span style={{color:T.accent,marginLeft:3}}>*</span>}</label>;
-}
-function Inp({label,required,value,onChange,placeholder,type="text",hint,mono}){
-  return(
-    <div style={{marginBottom:18}}>
-      {label&&<Label required={required}>{label}</Label>}
-      <input type={type} value={value||""} onChange={e=>onChange(e.target.value)} placeholder={placeholder}
-        style={{width:"100%",padding:"11px 14px",background:T.surface,border:`1.5px solid ${T.border}`,borderRadius:10,fontSize:mono?12:14,color:T.ink,fontFamily:mono?"monospace":"inherit",outline:"none",boxSizing:"border-box"}}
-        onFocus={e=>e.target.style.borderColor=T.accent} onBlur={e=>e.target.style.borderColor=T.border}/>
-      {hint&&<p style={{color:T.muted,fontSize:11,marginTop:4}}>{hint}</p>}
-    </div>
-  );
-}
-function SelF({label,required,value,onChange,options}){
-  return(
-    <div style={{marginBottom:18}}>
-      {label&&<Label required={required}>{label}</Label>}
-      <select value={value||""} onChange={e=>onChange(e.target.value)}
-        style={{width:"100%",padding:"11px 14px",background:T.surface,border:`1.5px solid ${T.border}`,borderRadius:10,fontSize:14,color:value?T.ink:T.muted,fontFamily:"inherit",outline:"none",appearance:"none",boxSizing:"border-box"}}>
-        <option value="">Select…</option>
-        {options.map(o=><option key={o} value={o}>{o}</option>)}
-      </select>
-    </div>
-  );
-}
-function Btn({children,onClick,disabled,isLast,outline}){
-  const bg=disabled?T.faint:isLast?T.green:T.ink;
-  return <button onClick={onClick} disabled={disabled} style={{flex:outline?1:2,padding:"13px",background:outline?T.faint:bg,border:outline?`1.5px solid ${T.border}`:"none",borderRadius:12,fontSize:14,fontWeight:700,color:disabled?T.muted:outline?T.muted:"white",cursor:disabled?"default":"pointer",fontFamily:"inherit"}}>{children}</button>;
-}
+function Label({children,required}){return <label style={{display:"block",fontSize:11,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:6}}>{children}{required&&<span style={{color:T.accent,marginLeft:3}}>*</span>}</label>;}
+function Inp({label,required,value,onChange,placeholder,type="text",hint,mono}){return(<div style={{marginBottom:18}}>{label&&<Label required={required}>{label}</Label>}<input type={type} value={value||""} onChange={e=>onChange(e.target.value)} placeholder={placeholder} style={{width:"100%",padding:"11px 14px",background:T.surface,border:`1.5px solid ${T.border}`,borderRadius:10,fontSize:mono?12:14,color:T.ink,fontFamily:mono?"monospace":"inherit",outline:"none",boxSizing:"border-box"}} onFocus={e=>e.target.style.borderColor=T.accent} onBlur={e=>e.target.style.borderColor=T.border}/>{hint&&<p style={{color:T.muted,fontSize:11,marginTop:4}}>{hint}</p>}</div>);}
+function SelF({label,required,value,onChange,options}){return(<div style={{marginBottom:18}}>{label&&<Label required={required}>{label}</Label>}<select value={value||""} onChange={e=>onChange(e.target.value)} style={{width:"100%",padding:"11px 14px",background:T.surface,border:`1.5px solid ${T.border}`,borderRadius:10,fontSize:14,color:value?T.ink:T.muted,fontFamily:"inherit",outline:"none",appearance:"none",boxSizing:"border-box"}}><option value="">Select…</option>{options.map(o=><option key={o} value={o}>{o}</option>)}</select></div>);}
 
 function ProgressBar({step}){
   const idx=STEPS.findIndex(s=>s.id===step);
   const pct=(idx/(STEPS.length-1))*100;
-  return(
-    <div>
-      <div style={{display:"flex",justifyContent:"space-between",marginBottom:10}}>
-        {STEPS.map((s,i)=>{const done=i<idx,cur=i===idx;return(
-          <div key={s.id} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
-            <div style={{width:28,height:28,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",fontSize:s.icon==="💳"?11:11,fontWeight:700,background:done?T.accent:cur?T.ink:T.faint,color:done||cur?"white":T.muted,border:`2px solid ${done?T.accent:cur?T.ink:T.border}`}}>
-              {done?"✓":s.icon}
-            </div>
-            <span style={{fontSize:8,fontWeight:700,color:cur?T.ink:T.muted,textTransform:"uppercase",letterSpacing:"0.06em"}}>{s.label}</span>
-          </div>
-        );})}
-      </div>
-      <div style={{height:3,background:T.border,borderRadius:99,overflow:"hidden"}}>
-        <div style={{height:3,width:`${pct}%`,background:T.accent,borderRadius:99,transition:"width 0.4s ease"}}/>
-      </div>
-    </div>
-  );
+  return(<div><div style={{display:"flex",justifyContent:"space-between",marginBottom:10}}>{STEPS.map((s,i)=>{const done=i<idx,cur=i===idx;return(<div key={s.id} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:3}}><div style={{width:26,height:26,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,background:done?T.accent:cur?T.ink:T.faint,color:done||cur?"white":T.muted,border:`2px solid ${done?T.accent:cur?T.ink:T.border}`}}>{done?"✓":s.icon}</div><span style={{fontSize:8,fontWeight:700,color:cur?T.ink:T.muted,textTransform:"uppercase",letterSpacing:"0.06em"}}>{s.label}</span></div>);})}</div><div style={{height:3,background:T.border,borderRadius:99,overflow:"hidden"}}><div style={{height:3,width:`${pct}%`,background:T.accent,borderRadius:99,transition:"width 0.4s ease"}}/></div></div>);
 }
 
-function StepHeader({title,subtitle}){
-  return(
-    <div style={{marginBottom:26}}>
-      <h2 style={{fontFamily:"Georgia,serif",fontSize:26,fontWeight:700,color:T.ink,margin:0,lineHeight:1.2}}>{title}</h2>
-      {subtitle&&<p style={{color:T.muted,fontSize:13,marginTop:6,lineHeight:1.6}}>{subtitle}</p>}
-    </div>
-  );
-}
+function StepHeader({title,subtitle}){return(<div style={{marginBottom:26}}><h2 style={{fontFamily:"Georgia,serif",fontSize:24,fontWeight:700,color:T.ink,margin:0,lineHeight:1.2}}>{title}</h2>{subtitle&&<p style={{color:T.muted,fontSize:13,marginTop:6,lineHeight:1.6}}>{subtitle}</p>}</div>);}
 
-// ── STEP: BRAND ───────────────────────────────────────────────────────────────
-function StepBrand({data,setData}){
-  const s=k=>v=>setData(d=>({...d,[k]:v}));
-  return(
-    <div>
-      <StepHeader title="Your Brand" subtitle="Tell us about the brand you're bringing to Merch on Demand."/>
-      <Inp label="Brand Name" required value={data.brandName} onChange={s("brandName")} placeholder="e.g. Rivera Designs"/>
-      <Inp label="Tagline" value={data.tagline} onChange={s("tagline")} placeholder="Bold streetwear for everyday people" hint="Shown on your store page — under 10 words."/>
-      <div style={{marginBottom:22}}>
-        <Label>Category</Label>
-        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-          {["Fashion","Music","Sports","Art","Gaming","Lifestyle","Business","Other"].map(cat=>{
-            const active=data.category===cat;
-            return <button key={cat} onClick={()=>setData(d=>({...d,category:cat}))} style={{padding:"8px 16px",background:active?T.ink:T.faint,border:`1.5px solid ${active?T.ink:T.border}`,borderRadius:99,fontSize:12,fontWeight:600,color:active?"white":T.muted,cursor:"pointer",fontFamily:"inherit"}}>{cat}</button>;
-          })}
-        </div>
-      </div>
-    </div>
-  );
-}
+// ── PRODUCT DESIGNER ──────────────────────────────────────────────────────────
+function ProductSlot({slotNum,totalSlots,planMax,productDesign,onChange,shopifyProducts}){
+  const catalogue = shopifyProducts.length > 0 ? shopifyProducts : AS_CATALOGUE;
+  const[syncing,setSyncing]=useState(false);
+  const frontInputRef=useRef();
+  const backInputRef=useRef();
 
-// ── STEP: CONTACT ─────────────────────────────────────────────────────────────
-function StepContact({data,setData}){
-  const s=k=>v=>setData(d=>({...d,[k]:v}));
-  return(
-    <div>
-      <StepHeader title="Contact Details" subtitle="Your personal details for account management and payout notifications."/>
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 14px"}}>
-        <Inp label="First Name" required value={data.firstName} onChange={s("firstName")} placeholder="Jake"/>
-        <Inp label="Last Name"  required value={data.lastName}  onChange={s("lastName")}  placeholder="Rivera"/>
-      </div>
-      <Inp label="Email" required type="email" value={data.email} onChange={s("email")} placeholder="jake@riveradesigns.com"/>
-      <Inp label="Phone" required type="tel"   value={data.phone} onChange={s("phone")} placeholder="+61 4XX XXX XXX"/>
-      <div style={{height:1,background:T.border,margin:"6px 0 22px"}}/>
-      <p style={{fontFamily:"Georgia,serif",fontSize:17,fontWeight:700,color:T.ink,marginBottom:16}}>Business Address</p>
-      <Inp label="Street Address" required value={data.street}  onChange={s("street")}  placeholder="123 Main Street"/>
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 14px"}}>
-        <Inp label="Suburb / City" required value={data.suburb} onChange={s("suburb")} placeholder="Melbourne"/>
-        <SelF label="State" required value={data.state} onChange={s("state")} options={["NSW","VIC","QLD","WA","SA","TAS","ACT","NT"]}/>
-      </div>
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 14px"}}>
-        <Inp label="Postcode" required value={data.postcode} onChange={s("postcode")} placeholder="3000"/>
-        <SelF label="Country" value={data.country} onChange={s("country")} options={["Australia","New Zealand","United Kingdom","United States","Canada"]}/>
-      </div>
-    </div>
-  );
-}
+  const d = productDesign || {productId:"",colour:"#FFFFFF",sizes:[],frontLogo:null,backLogo:null,frontPlacement:null,backPlacement:null,notes:""};
+  const selectedProduct = catalogue.find(p=>p.id===d.productId);
 
-// ── STEP: BANK ────────────────────────────────────────────────────────────────
-function StepBank({data,setData}){
-  const s=k=>v=>setData(d=>({...d,[k]:v}));
-  return(
-    <div>
-      <StepHeader title="Banking Details" subtitle="We'll use these to send your monthly payouts. Encrypted and never shared."/>
-      <div style={{background:T.accentBg,border:`1.5px solid ${T.accentBorder}`,borderRadius:12,padding:14,marginBottom:22}}>
-        <p style={{color:T.accent,fontSize:12,fontWeight:700,marginBottom:4}}>🔒 Secure & Private</p>
-        <p style={{color:T.muted,fontSize:12,lineHeight:1.6}}>Used solely for monthly payout transfers via ABA Direct Entry — standard AU bank-to-bank system.</p>
-      </div>
-      <Inp label="Bank Name" required value={data.bank} onChange={s("bank")} placeholder="e.g. Commonwealth Bank"/>
-      <Inp label="Account Name" required value={data.accountName} onChange={s("accountName")} placeholder="Must match your bank account exactly" hint="Use the exact name as it appears on your account."/>
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 14px"}}>
-        <Inp label="BSB" required value={data.bsb} onChange={s("bsb")} placeholder="062-000" hint="Format XXX-XXX" mono/>
-        <Inp label="Account Number" required value={data.accountNumber} onChange={s("accountNumber")} placeholder="12345678" mono/>
-      </div>
-    </div>
-  );
-}
+  const update=patch=>onChange({...d,...patch});
 
-// ── STEP: PLAN ────────────────────────────────────────────────────────────────
-function StepPlan({selectedPlan,onSelect}){
-  return(
-    <div>
-      <StepHeader title="Choose Your Plan" subtitle="Select the plan that best fits your brand. Upgrade or downgrade any time."/>
-      <div style={{display:"flex",flexDirection:"column",gap:14}}>
-        {PLANS.map(plan=>{const active=selectedPlan===plan.id;return(
-          <div key={plan.id} onClick={()=>onSelect(plan.id)}
-            style={{border:`2px solid ${active?plan.colour:T.border}`,borderRadius:16,padding:20,cursor:"pointer",background:active?"rgba(0,0,0,0.02)":T.surface,position:"relative"}}>
-            {plan.badge&&<div style={{position:"absolute",top:-1,right:16,background:plan.colour,color:"white",fontSize:9,fontWeight:800,padding:"3px 10px",borderRadius:"0 0 8px 8px",letterSpacing:"0.1em"}}>{plan.badge}</div>}
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14}}>
-              <div style={{display:"flex",alignItems:"center",gap:10}}>
-                <div style={{width:20,height:20,borderRadius:"50%",border:`2.5px solid ${active?plan.colour:T.border}`,display:"flex",alignItems:"center",justifyContent:"center"}}>
-                  {active&&<div style={{width:10,height:10,borderRadius:"50%",background:plan.colour}}/>}
-                </div>
-                <div>
-                  <p style={{fontFamily:"Georgia,serif",fontSize:20,fontWeight:700,color:T.ink}}>{plan.name}</p>
-                  <p style={{color:plan.colour,fontSize:13,fontWeight:700}}>${plan.payout} payout per item sold</p>
-                </div>
-              </div>
-              <div style={{textAlign:"right"}}>
-                <p style={{fontFamily:"Georgia,serif",fontSize:28,fontWeight:900,color:plan.colour,lineHeight:1}}>${plan.price}</p>
-                <p style={{color:T.muted,fontSize:11}}>per month</p>
-              </div>
-            </div>
-            <div style={{display:"flex",flexDirection:"column",gap:5}}>
-              {plan.features.map(f=><div key={f} style={{display:"flex",alignItems:"flex-start",gap:8}}><span style={{color:plan.colour,fontSize:13,marginTop:1,flexShrink:0}}>✓</span><p style={{color:T.muted,fontSize:13}}>{f}</p></div>)}
-            </div>
-          </div>
-        );})}
-      </div>
-    </div>
-  );
-}
-
-// ── STEP: PAYMENT (real Stripe Elements) ──────────────────────────────────────
-function StepPayment({plan,cardMountRef}){
-  const selectedPlan=PLANS.find(p=>p.id===plan);
-
-  return(
-    <div>
-      <StepHeader title="Payment Details" subtitle="Your subscription starts immediately. Cancel any time."/>
-      {selectedPlan&&(
-        <div style={{background:T.faint,border:`1.5px solid ${T.border}`,borderRadius:14,padding:16,marginBottom:24}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-            <div><p style={{color:T.ink,fontWeight:700,fontSize:15}}>{selectedPlan.name} Plan</p><p style={{color:T.muted,fontSize:12,marginTop:2}}>${selectedPlan.payout} per item · billed monthly</p></div>
-            <div style={{textAlign:"right"}}><p style={{color:selectedPlan.colour,fontFamily:"Georgia,serif",fontSize:22,fontWeight:900}}>${selectedPlan.price}</p><p style={{color:T.muted,fontSize:10}}>/month</p></div>
-          </div>
-        </div>
-      )}
-      <div style={{background:T.surface,border:`1.5px solid ${T.border}`,borderRadius:16,padding:20,marginBottom:16}}>
-        <p style={{fontFamily:"Georgia,serif",fontSize:15,fontWeight:700,color:T.ink,marginBottom:16}}>Card Details</p>
-        <div id="stripe-placeholder" style={{minHeight:50}}/>
-        <div style={{display:"flex",alignItems:"center",gap:8,marginTop:14,padding:"10px 12px",background:T.greenBg,border:`1px solid ${T.green}`,borderRadius:10}}>
-          <span style={{fontSize:16}}>🔒</span>
-          <p style={{color:T.green,fontSize:11,fontWeight:600}}>Secured by Stripe · 256-bit SSL</p>
-        </div>
-      </div>
-      <div style={{background:T.faint,border:`1.5px solid ${T.border}`,borderRadius:12,padding:14}}>
-        {[["First charge",`$${selectedPlan?.price||"—"} today`],["Then billed","Monthly on the same date"],["Cancel anytime","No lock-in contract"],["Payout rate",`$${selectedPlan?.payout||"—"} per item sold`]].map(([l,v])=>(
-          <div key={l} style={{display:"flex",justifyContent:"space-between",padding:"7px 0",borderBottom:`1px solid ${T.border}`}}><span style={{color:T.muted,fontSize:13}}>{l}</span><span style={{color:T.ink,fontSize:13,fontWeight:700}}>{v}</span></div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// ── SHOPIFY PRODUCT CATALOGUE ─────────────────────────────────────────────────
-const AS_COLOURS = [
-  {name:"White",hex:"#FFFFFF"},{name:"Black",hex:"#1A1714"},{name:"Navy",hex:"#1B2A4A"},
-  {name:"Forest",hex:"#2D4A35"},{name:"Slate",hex:"#6B7A8D"},{name:"Bone",hex:"#E8DFD0"},
-  {name:"Ash",hex:"#C8C4BC"},{name:"Clay",hex:"#B5734A"},{name:"Dusty Blue",hex:"#7EA3B8"},
-  {name:"Washed Black",hex:"#3A3735"},{name:"Mauve",hex:"#B8849A"},
-  {name:"Military Green",hex:"#5C6B4A"},{name:"Maroon",hex:"#6B2035"},
-  {name:"Red",hex:"#C0392B"},{name:"Royal",hex:"#2A5FA5"},
-];
-const AS_SIZES = ["XS","S","M","L","XL","2XL","3XL","4XL","5XL"];
-
-// ── LOGO UPLOAD SLOT ──────────────────────────────────────────────────────────
-function LogoSlot({label,logo,onSet,onClear,hint}){
-  const ref=useRef();
-  const[drag,setDrag]=useState(false);
-  const handle=async(file)=>{
-    if(!file?.type.startsWith("image/"))return;
-    const r=new FileReader();
-    r.onload=e=>onSet({name:file.name,url:e.target.result});
-    r.readAsDataURL(file);
+  const handleLogoUpload=async(file,side)=>{
+    if(!file||!file.type.startsWith("image/"))return;
+    const url=await readFileAsDataURL(file);
+    update({[side+"Logo"]:{name:file.name,url},[side+"Placement"]:null});
   };
-  return(
-    <div style={{flex:1}}>
-      <Label>{label}</Label>
-      {hint&&<p style={{color:T.muted,fontSize:10,marginBottom:8}}>{hint}</p>}
-      {logo?(
-        <div style={{position:"relative",border:`1.5px solid ${T.border}`,borderRadius:12,background:"#F9F9F9",aspectRatio:"1",overflow:"hidden"}}>
-          <img src={logo.url} alt="" style={{width:"100%",height:"100%",objectFit:"contain",padding:10}}/>
-          <button onClick={onClear} style={{position:"absolute",top:6,right:6,width:24,height:24,borderRadius:"50%",background:T.ink,border:"none",color:"white",fontSize:12,cursor:"pointer"}}>✕</button>
-          <div style={{position:"absolute",bottom:0,left:0,right:0,background:"rgba(0,0,0,0.5)",padding:"3px 8px"}}>
-            <p style={{color:"white",fontSize:9,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{logo.name}</p>
-          </div>
-        </div>
-      ):(
-        <div onClick={()=>ref.current?.click()}
-          onDragOver={e=>{e.preventDefault();setDrag(true);}}
-          onDragLeave={()=>setDrag(false)}
-          onDrop={e=>{e.preventDefault();setDrag(false);handle(e.dataTransfer.files[0]);}}
-          style={{border:`2px dashed ${drag?T.accent:T.border}`,borderRadius:12,aspectRatio:"1",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:6,cursor:"pointer",background:drag?T.accentBg:T.faint}}>
-          <span style={{fontSize:28}}>📁</span>
-          <p style={{color:T.muted,fontSize:11,fontWeight:600,textAlign:"center",padding:"0 10px"}}>Drop or tap</p>
-          <p style={{color:T.muted,fontSize:9}}>PNG · SVG · JPG</p>
-          <input ref={ref} type="file" accept="image/*" style={{display:"none"}} onChange={e=>handle(e.target.files[0])}/>
-        </div>
-      )}
-    </div>
-  );
-}
 
-// ── GARMENT CANVAS ────────────────────────────────────────────────────────────
-function GarmentCanvas({side,colour,logo,placement,onPlacementChange}){
-  const containerRef=useRef(null);
+  // Draggable logo state
   const isDragging=useRef(false);
   const isResizing=useRef(false);
   const dragStart=useRef({});
-  const resizeStart=useRef({});
-
-  const pz = side==="front"
-    ? {x:62,y:55,w:76,h:90}
-    : {x:62,y:50,w:76,h:90};
-
-  const pl = placement || {x:pz.x+pz.w*0.15, y:pz.y+pz.h*0.15, w:pz.w*0.7, h:pz.h*0.7};
-
-  const isLight=["#FFFFFF","#E8DFD0","#C8C4BC"].includes(colour);
-  const stroke=isLight?"#CCCCCC":"transparent";
+  const containerRef=useRef();
 
   const getScale=()=>{
     if(!containerRef.current)return{sx:1,sy:1};
@@ -342,283 +141,364 @@ function GarmentCanvas({side,colour,logo,placement,onPlacementChange}){
     return{sx:width/200,sy:height/220};
   };
 
-  const onMouseDownDrag=(e)=>{
+  const startDrag=(e,side)=>{
     e.preventDefault();e.stopPropagation();
-    isDragging.current=true;
+    const pl=d[side+"Placement"]||{x:68,y:60,w:64,h:64};
     const{sx,sy}=getScale();
-    dragStart.current={mx:e.clientX,my:e.clientY,lx:pl.x*sx,ly:pl.y*sy};
-    const move=(ev)=>{
+    const clientX=e.touches?e.touches[0].clientX:e.clientX;
+    const clientY=e.touches?e.touches[0].clientY:e.clientY;
+    isDragging.current={side,pl};
+    dragStart.current={mx:clientX,my:clientY,lx:pl.x*sx,ly:pl.y*sy};
+    const pz={x:62,y:55,w:76,h:90};
+    const move=ev=>{
       if(!isDragging.current)return;
+      const cx=ev.touches?ev.touches[0].clientX:ev.clientX;
+      const cy=ev.touches?ev.touches[0].clientY:ev.clientY;
       const{sx:sx2,sy:sy2}=getScale();
-      let nx=(dragStart.current.lx+(ev.clientX-dragStart.current.mx))/sx2;
-      let ny=(dragStart.current.ly+(ev.clientY-dragStart.current.my))/sy2;
+      let nx=(dragStart.current.lx+(cx-dragStart.current.mx))/sx2;
+      let ny=(dragStart.current.ly+(cy-dragStart.current.my))/sy2;
       nx=Math.max(pz.x,Math.min(pz.x+pz.w-pl.w,nx));
       ny=Math.max(pz.y,Math.min(pz.y+pz.h-pl.h,ny));
-      onPlacementChange({...pl,x:nx,y:ny});
+      update({[side+"Placement"]:{...pl,x:nx,y:ny}});
     };
-    const up=()=>{isDragging.current=false;window.removeEventListener("mousemove",move);window.removeEventListener("mouseup",up);};
+    const up=()=>{isDragging.current=false;window.removeEventListener("mousemove",move);window.removeEventListener("mouseup",up);window.removeEventListener("touchmove",move);window.removeEventListener("touchend",up);};
     window.addEventListener("mousemove",move);window.addEventListener("mouseup",up);
-  };
-
-  const onTouchDrag=(e)=>{
-    e.preventDefault();e.stopPropagation();
-    isDragging.current=true;
-    const t=e.touches[0];
-    const{sx,sy}=getScale();
-    dragStart.current={mx:t.clientX,my:t.clientY,lx:pl.x*sx,ly:pl.y*sy};
-    const move=(ev)=>{
-      const t2=ev.touches[0];
-      const{sx:sx2,sy:sy2}=getScale();
-      let nx=(dragStart.current.lx+(t2.clientX-dragStart.current.mx))/sx2;
-      let ny=(dragStart.current.ly+(t2.clientY-dragStart.current.my))/sy2;
-      nx=Math.max(pz.x,Math.min(pz.x+pz.w-pl.w,nx));
-      ny=Math.max(pz.y,Math.min(pz.y+pz.h-pl.h,ny));
-      onPlacementChange({...pl,x:nx,y:ny});
-    };
-    const up=()=>{isDragging.current=false;window.removeEventListener("touchmove",move);window.removeEventListener("touchend",up);};
     window.addEventListener("touchmove",move,{passive:false});window.addEventListener("touchend",up);
   };
 
-  const onMouseDownResize=(e)=>{
+  const startResize=(e,side)=>{
     e.preventDefault();e.stopPropagation();
-    isResizing.current=true;
+    const pl=d[side+"Placement"]||{x:68,y:60,w:64,h:64};
     const{sx}=getScale();
-    resizeStart.current={mx:e.clientX,lw:pl.w*sx};
-    const move=(ev)=>{
+    const clientX=e.touches?e.touches[0].clientX:e.clientX;
+    isResizing.current={side,pl};
+    dragStart.current={mx:clientX,lw:pl.w*sx};
+    const pz={x:62,y:55,w:76,h:90};
+    const move=ev=>{
       if(!isResizing.current)return;
+      const cx=ev.touches?ev.touches[0].clientX:ev.clientX;
       const{sx:sx2}=getScale();
-      let nw=(resizeStart.current.lw+(ev.clientX-resizeStart.current.mx))/sx2;
+      let nw=(dragStart.current.lw+(cx-dragStart.current.mx))/sx2;
       nw=Math.max(10,Math.min(pz.x+pz.w-pl.x,nw));
       const nh=nw*(pl.h/pl.w);
-      onPlacementChange({...pl,w:nw,h:Math.min(nh,pz.y+pz.h-pl.y)});
+      update({[side+"Placement"]:{...pl,w:nw,h:Math.min(nh,pz.y+pz.h-pl.y)}});
     };
-    const up=()=>{isResizing.current=false;window.removeEventListener("mousemove",move);window.removeEventListener("mouseup",up);};
+    const up=()=>{isResizing.current=false;window.removeEventListener("mousemove",move);window.removeEventListener("mouseup",up);window.removeEventListener("touchmove",move);window.removeEventListener("touchend",up);};
     window.addEventListener("mousemove",move);window.addEventListener("mouseup",up);
-  };
-
-  const onTouchResize=(e)=>{
-    e.preventDefault();e.stopPropagation();
-    isResizing.current=true;
-    const t=e.touches[0];
-    const{sx}=getScale();
-    resizeStart.current={mx:t.clientX,lw:pl.w*sx};
-    const move=(ev)=>{
-      const t2=ev.touches[0];
-      const{sx:sx2}=getScale();
-      let nw=(resizeStart.current.lw+(t2.clientX-resizeStart.current.mx))/sx2;
-      nw=Math.max(10,Math.min(pz.x+pz.w-pl.x,nw));
-      const nh=nw*(pl.h/pl.w);
-      onPlacementChange({...pl,w:nw,h:Math.min(nh,pz.y+pz.h-pl.y)});
-    };
-    const up=()=>{isResizing.current=false;window.removeEventListener("touchmove",move);window.removeEventListener("touchend",up);};
     window.addEventListener("touchmove",move,{passive:false});window.addEventListener("touchend",up);
   };
 
-  const bodyPath=side==="front"
-    ?"M55,20 L30,45 L5,38 L18,80 L40,75 L40,205 L160,205 L160,75 L182,80 L195,38 L170,45 L145,20 C140,28 130,35 100,35 C70,35 60,28 55,20 Z"
-    :"M55,20 L30,45 L5,38 L18,80 L40,75 L40,205 L160,205 L160,75 L182,80 L195,38 L170,45 L145,20 C140,28 130,35 100,35 C70,35 60,28 55,20 Z";
+  const renderCanvas=(side)=>{
+    const logo=d[side+"Logo"];
+    const pz={x:62,y:side==="front"?55:50,w:76,h:90};
+    const pl=d[side+"Placement"]||{x:pz.x+pz.w*0.15,y:pz.y+pz.h*0.15,w:pz.w*0.7,h:pz.h*0.7};
+    const colour=d.colour||"#FFFFFF";
+    const isLight=["#FFFFFF","#E8DFD0","#C8C4BC","#E8E4DC"].includes(colour);
+    const stroke=isLight?"#CCCCCC":"transparent";
+    const bodyPath="M55,20 L30,45 L5,38 L18,80 L40,75 L40,205 L160,205 L160,75 L182,80 L195,38 L170,45 L145,20 C140,28 130,35 100,35 C70,35 60,28 55,20 Z";
+    const isHoodie=selectedProduct?.category?.includes("Hoodie");
+    const isCap=selectedProduct?.category?.includes("Cap");
+
+    if(isCap&&side==="back")return null;
+
+    return(
+      <div style={{position:"relative",background:T.surface,border:`1.5px solid ${T.border}`,borderRadius:12,padding:10,flex:1}} ref={side==="front"?containerRef:null}>
+        <p style={{textAlign:"center",fontSize:9,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:6}}>{side==="front"?"FRONT":"BACK"}</p>
+
+        {/* Click to upload hint */}
+        {!logo&&<p style={{textAlign:"center",fontSize:10,color:T.accent,marginBottom:4}}>👆 Click garment to upload logo</p>}
+
+        <svg viewBox="0 0 200 220" style={{width:"100%",display:"block",cursor:"pointer"}}
+          onClick={()=>{if(!logo){side==="front"?frontInputRef.current?.click():backInputRef.current?.click();}}}
+        >
+          <ellipse cx="100" cy="215" rx="70" ry="6" fill="rgba(0,0,0,0.06)"/>
+
+          {isCap?(
+            <>
+              <path d="M20,115 Q60,140 140,115 Q170,130 180,125 Q160,145 20,130 Z" fill={colour} stroke={stroke} strokeWidth="1"/>
+              <path d="M30,110 Q50,45 100,40 Q150,45 170,110 Q130,125 70,125 Z" fill={colour} stroke={stroke} strokeWidth="1.5"/>
+              <line x1="100" y1="40" x2="100" y2="115" stroke="rgba(0,0,0,0.07)" strokeWidth="1"/>
+              <circle cx="100" cy="42" r="4" fill="rgba(0,0,0,0.12)"/>
+            </>
+          ):(
+            <>
+              <path d={bodyPath} fill={colour} stroke={stroke} strokeWidth="1.5"/>
+              <path d="M55,20 C60,28 70,35 100,35 C130,35 140,28 145,20" fill="none" stroke={stroke||"rgba(0,0,0,0.1)"} strokeWidth="2"/>
+              {isHoodie&&<path d="M50,22 C45,10 65,2 100,2 C135,2 155,10 150,22 C145,15 130,8 100,8 C70,8 55,15 50,22 Z" fill={colour} stroke={stroke||"rgba(0,0,0,0.08)"} strokeWidth="1"/>}
+              {isHoodie&&side==="front"&&<rect x="65" y="155" width="70" height="40" rx="4" fill="rgba(0,0,0,0.06)" stroke="rgba(0,0,0,0.08)" strokeWidth="1"/>}
+              <line x1="40" y1="75" x2="40" y2="205" stroke="rgba(0,0,0,0.06)" strokeWidth="1"/>
+              <line x1="160" y1="75" x2="160" y2="205" stroke="rgba(0,0,0,0.06)" strokeWidth="1"/>
+            </>
+          )}
+
+          {/* Print zone */}
+          <rect x={pz.x} y={pz.y} width={pz.w} height={pz.h} fill="rgba(212,82,26,0.04)" stroke="rgba(212,82,26,0.3)" strokeWidth="1" strokeDasharray="5,3" rx="2"/>
+          <text x={pz.x+pz.w/2} y={pz.y-3} textAnchor="middle" fontSize="7" fill="rgba(212,82,26,0.6)" fontFamily="Segoe UI,sans-serif">DTF PRINT ZONE</text>
+
+          {logo?(
+            <>
+              <image href={logo.url} x={pl.x} y={pl.y} width={pl.w} height={pl.h}
+                preserveAspectRatio="xMidYMid meet"
+                style={{cursor:"move"}}
+                onMouseDown={e=>startDrag(e,side)}
+                onTouchStart={e=>startDrag(e,side)}/>
+              <rect x={pl.x} y={pl.y} width={pl.w} height={pl.h} fill="none" stroke={T.accent} strokeWidth="1.5" strokeDasharray="4,2" rx="2" style={{pointerEvents:"none"}}/>
+              <circle cx={pl.x+5} cy={pl.y+5} r="5" fill={T.accent} style={{pointerEvents:"none"}}/>
+              <text x={pl.x+5} y={pl.y+9} textAnchor="middle" fontSize="6" fill="white" style={{pointerEvents:"none"}}>✥</text>
+              <rect x={pl.x+pl.w-9} y={pl.y+pl.h-9} width="11" height="11" fill={T.accent} rx="2"
+                style={{cursor:"se-resize"}} onMouseDown={e=>startResize(e,side)} onTouchStart={e=>startResize(e,side)}/>
+              <text x={pl.x+pl.w-3} y={pl.y+pl.h-1} fontSize="8" fill="white" style={{pointerEvents:"none"}}>↔</text>
+            </>
+          ):(
+            <text x={pz.x+pz.w/2} y={pz.y+pz.h/2+4} textAnchor="middle" fontSize="9" fill="rgba(212,82,26,0.4)" fontFamily="Segoe UI,sans-serif" fontWeight="600">Click to upload logo</text>
+          )}
+        </svg>
+
+        {/* Hidden file inputs */}
+        {side==="front"&&<input ref={frontInputRef} type="file" accept="image/*" style={{display:"none"}} onChange={e=>handleLogoUpload(e.target.files[0],"front")}/>}
+        {side==="back"&&<input ref={backInputRef} type="file" accept="image/*" style={{display:"none"}} onChange={e=>handleLogoUpload(e.target.files[0],"back")}/>}
+
+        {/* Logo label + remove */}
+        {logo&&(
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:6,padding:"4px 6px",background:T.greenBg,borderRadius:6}}>
+            <p style={{color:T.green,fontSize:10,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1}}>{logo.name}</p>
+            <button onClick={()=>{update({[side+"Logo"]:null,[side+"Placement"]:null});}} style={{background:"none",border:"none",color:T.muted,cursor:"pointer",fontSize:14,marginLeft:6,flexShrink:0}}>✕</button>
+          </div>
+        )}
+        {!logo&&(
+          <button onClick={()=>side==="front"?frontInputRef.current?.click():backInputRef.current?.click()}
+            style={{width:"100%",marginTop:6,padding:"6px",background:T.accentBg,border:`1px dashed ${T.accent}`,borderRadius:6,color:T.accent,fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>
+            + Upload {side} logo
+          </button>
+        )}
+      </div>
+    );
+  };
 
   return(
-    <div style={{position:"relative",userSelect:"none"}} ref={containerRef}>
-      <svg viewBox="0 0 200 220" style={{width:"100%",display:"block"}}>
-        <ellipse cx="100" cy="215" rx="70" ry="6" fill="rgba(0,0,0,0.06)"/>
-        <path d={bodyPath} fill={colour} stroke={stroke} strokeWidth="1.5"/>
-        <path d="M55,20 C60,28 70,35 100,35 C130,35 140,28 145,20" fill="none" stroke={stroke||"rgba(0,0,0,0.1)"} strokeWidth="2"/>
-        <line x1="40" y1="75" x2="40" y2="205" stroke="rgba(0,0,0,0.06)" strokeWidth="1"/>
-        <line x1="160" y1="75" x2="160" y2="205" stroke="rgba(0,0,0,0.06)" strokeWidth="1"/>
+    <div style={{background:T.surface,border:`1.5px solid ${T.border}`,borderRadius:16,padding:20,marginBottom:16}}>
+      {/* Slot header */}
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+        <div>
+          <p style={{fontFamily:"Georgia,serif",fontSize:16,fontWeight:700,color:T.ink}}>Product {slotNum} of {planMax===999?"∞":planMax}</p>
+          <p style={{color:T.muted,fontSize:11,marginTop:2}}>Select a product and customise your design</p>
+        </div>
+        {/* Slot progress dots */}
+        <div style={{display:"flex",gap:6}}>
+          {Array.from({length:Math.min(totalSlots,10)}).map((_,i)=>(
+            <div key={i} style={{width:8,height:8,borderRadius:"50%",background:i<slotNum?T.accent:i===slotNum-1?T.ink:T.border}}/>
+          ))}
+        </div>
+      </div>
 
-        {/* Print zone */}
-        <rect x={pz.x} y={pz.y} width={pz.w} height={pz.h}
-          fill="rgba(212,82,26,0.04)" stroke="rgba(212,82,26,0.3)" strokeWidth="1" strokeDasharray="5,3" rx="2"/>
-
-        {logo?(
-          <>
-            <image href={logo.url} x={pl.x} y={pl.y} width={pl.w} height={pl.h}
-              preserveAspectRatio="xMidYMid meet"
-              style={{cursor:"move"}}
-              onMouseDown={onMouseDownDrag} onTouchStart={onTouchDrag}/>
-            <rect x={pl.x} y={pl.y} width={pl.w} height={pl.h} fill="none" stroke={T.accent} strokeWidth="1.5" strokeDasharray="4,2" rx="2" style={{pointerEvents:"none"}}/>
-            <circle cx={pl.x+5} cy={pl.y+5} r="5" fill={T.accent} style={{pointerEvents:"none"}}/>
-            <text x={pl.x+5} y={pl.y+9} textAnchor="middle" fontSize="6" fill="white" style={{pointerEvents:"none"}}>✥</text>
-            <rect x={pl.x+pl.w-8} y={pl.y+pl.h-8} width="10" height="10" fill={T.accent} rx="2"
-              style={{cursor:"se-resize"}} onMouseDown={onMouseDownResize} onTouchStart={onTouchResize}/>
-            <text x={pl.x+pl.w-3} y={pl.y+pl.h-1} fontSize="7" fill="white" style={{pointerEvents:"none"}}>↔</text>
-            <text x={pz.x+pz.w/2} y={pz.y-3} textAnchor="middle" fontSize="7" fill="rgba(212,82,26,0.7)" fontFamily="Segoe UI,sans-serif">DTF PRINT ZONE</text>
-          </>
-        ):(
-          <text x={pz.x+pz.w/2} y={pz.y+pz.h/2+4} textAnchor="middle" fontSize="9" fill="rgba(212,82,26,0.5)" fontFamily="Segoe UI,sans-serif" fontWeight="600">
-            Upload logo to place here
-          </text>
+      {/* Product selector */}
+      <div style={{marginBottom:16}}>
+        <Label required>Product</Label>
+        <select value={d.productId||""} onChange={e=>update({productId:e.target.value,colour:"#FFFFFF",sizes:[]})}
+          style={{width:"100%",padding:"11px 14px",background:T.surface,border:`1.5px solid ${d.productId?T.green:T.border}`,borderRadius:10,fontSize:14,color:d.productId?T.ink:T.muted,fontFamily:"inherit",outline:"none",appearance:"none",boxSizing:"border-box"}}>
+          <option value="">— Select a product —</option>
+          {catalogue.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
+        </select>
+        {selectedProduct&&(
+          <div style={{display:"flex",alignItems:"center",gap:8,marginTop:8,padding:"6px 10px",background:T.greenBg,border:`1px solid ${T.green}`,borderRadius:8}}>
+            <span style={{fontSize:12}}>🔗</span>
+            <p style={{color:T.green,fontSize:11,fontWeight:600}}>Shopify #{selectedProduct.shopifyId} · DTF print · 36×42cm print area</p>
+          </div>
         )}
-        <text x="100" y="218" textAnchor="middle" fontSize="9" fill={T.muted} fontFamily="Segoe UI,sans-serif" fontWeight="600" letterSpacing="0.08em">
-          {side==="front"?"FRONT":"BACK"}
-        </text>
-      </svg>
+      </div>
+
+      {selectedProduct&&(
+        <>
+          {/* Design canvas — front & back side by side */}
+          <div style={{display:"flex",gap:12,marginBottom:16}}>
+            {renderCanvas("front")}
+            {selectedProduct.category!=="Cap"&&renderCanvas("back")}
+          </div>
+
+          <p style={{color:T.muted,fontSize:11,textAlign:"center",marginBottom:16}}>
+            💡 Click the garment to upload a logo · Drag to reposition · Drag ↔ corner to resize
+          </p>
+
+          {/* Colour picker */}
+          <div style={{marginBottom:16}}>
+            <Label>Garment Colour — <span style={{color:T.accent}}>{selectedProduct.colours.find(c=>c.h===d.colour)?.n||"Select"}</span></Label>
+            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+              {selectedProduct.colours.map(c=>(
+                <button key={c.h} onClick={()=>update({colour:c.h})} title={c.n}
+                  style={{width:32,height:32,borderRadius:"50%",background:c.h,border:`3px solid ${d.colour===c.h?T.accent:T.border}`,cursor:"pointer",boxShadow:d.colour===c.h?`0 0 0 2px white, 0 0 0 4px ${T.accent}`:"0 1px 3px rgba(0,0,0,0.15)",transition:"all 0.15s"}}/>
+              ))}
+            </div>
+          </div>
+
+          {/* Size selector */}
+          <div style={{marginBottom:16}}>
+            <Label>Sizes to offer</Label>
+            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+              {selectedProduct.sizes.map(sz=>{
+                const sel=(d.sizes||[]).includes(sz);
+                return <button key={sz} onClick={()=>update({sizes:sel?(d.sizes||[]).filter(s=>s!==sz):[...(d.sizes||[]),sz]})} style={{padding:"6px 13px",background:sel?T.ink:T.faint,border:`1.5px solid ${sel?T.ink:T.border}`,borderRadius:8,fontSize:12,fontWeight:700,color:sel?"white":T.muted,cursor:"pointer",fontFamily:"inherit"}}>{sz}</button>;
+              })}
+            </div>
+          </div>
+
+          {/* Notes */}
+          <div>
+            <Label>Design Notes for this product</Label>
+            <textarea value={d.notes||""} onChange={e=>update({notes:e.target.value})}
+              placeholder="e.g. Front logo centred chest, approx 20cm wide. Back blank."
+              rows={2} style={{width:"100%",padding:"10px 14px",background:T.surface,border:`1.5px solid ${T.border}`,borderRadius:10,fontSize:13,color:T.ink,fontFamily:"inherit",outline:"none",resize:"none",boxSizing:"border-box",lineHeight:1.6}}
+              onFocus={e=>e.target.style.borderColor=T.accent} onBlur={e=>e.target.style.borderColor=T.border}/>
+          </div>
+        </>
+      )}
     </div>
   );
 }
 
-// ── STEP: DESIGN (full interactive) ──────────────────────────────────────────
-function StepDesign({data,setData}){
-  const[activeProduct,setActiveProduct]=useState("tee");
+// ── STEP: DESIGN ──────────────────────────────────────────────────────────────
+function StepDesign({planId,productSlots,onChange,shopifyProducts,shopifyToken,shopifyStore}){
+  const plan=planOf(planId);
+  const maxSlots=plan.maxProducts===999?10:plan.maxProducts;
+  const[numSlots,setNumSlots]=useState(Math.max(1,productSlots.filter(Boolean).length)||1);
+  const[syncing,setSyncing]=useState(false);
+  const[syncMsg,setSyncMsg]=useState("");
+  const[liveProducts,setLiveProducts]=useState(shopifyProducts||[]);
 
-  const getD=pid=>data.designs?.[pid]||{frontPlacement:null,backPlacement:null,colour:"#FFFFFF",sizes:[],notes:""};
-  const updD=(pid,patch)=>setData(d=>({...d,designs:{...(d.designs||{}),[pid]:{...getD(pid),...patch}}}));
-  const cd=getD(activeProduct);
+  // Sync from Shopify if token available
+  const syncProducts=useCallback(async()=>{
+    if(!shopifyToken||!shopifyStore)return;
+    setSyncing(true);setSyncMsg("Fetching products from Shopify…");
+    try{
+      const r=await fetch(`${PROXY}/shopify?store=${encodeURIComponent(shopifyStore)}&path=products.json?limit=250`,{headers:{"x-shopify-token":shopifyToken}});
+      if(!r.ok)throw new Error("HTTP "+r.status);
+      const{products}=await r.json();
+      const mapped=products.map(p=>({
+        id:p.id.toString(),shopifyId:p.id.toString(),name:p.title,
+        category:p.product_type||p.title,
+        colours:[...new Map(p.variants.filter(v=>v.option1).map(v=>[v.option1,{n:v.option1,h:"#888888"}])).values()],
+        sizes:[...new Set(p.variants.filter(v=>v.option2).map(v=>v.option2))],
+      }));
+      setLiveProducts(mapped);
+      setSyncMsg(`✓ ${mapped.length} products loaded from Shopify`);
+    }catch(e){setSyncMsg("Could not load from Shopify — using catalogue");}
+    finally{setSyncing(false);setTimeout(()=>setSyncMsg(""),4000);}
+  },[shopifyToken,shopifyStore]);
 
-  const toggleSize=sz=>{
-    const sizes=cd.sizes||[];
-    updD(activeProduct,{sizes:sizes.includes(sz)?sizes.filter(s=>s!==sz):[...sizes,sz]});
-  };
-
-  const PRODUCTS=[{id:"tee",label:"T-Shirt"},{id:"hoodie",label:"Hoodie"},{id:"cap",label:"Cap"}];
-  const curColour=AS_COLOURS.find(c=>c.hex===cd.colour)||AS_COLOURS[0];
+  const catalogue=liveProducts.length>0?liveProducts:AS_CATALOGUE;
 
   return(
-    <div style={{display:"flex",flexDirection:"column",gap:22}}>
-      <StepHeader title="Product Design" subtitle="Upload logos, position them on front and back, choose colours and sizes."/>
+    <div>
+      <StepHeader title="Product Design" subtitle={`Design up to ${maxSlots===999?"unlimited":maxSlots} products on your ${plan.name} plan. Click the garment to upload your logo.`}/>
 
-      {/* Product tabs */}
-      <div>
-        <Label>Product Type</Label>
-        <div style={{display:"flex",gap:8}}>
-          {PRODUCTS.map(p=>{
-            const active=activeProduct===p.id;
-            return <button key={p.id} onClick={()=>setActiveProduct(p.id)} style={{padding:"9px 18px",background:active?T.ink:T.faint,border:`1.5px solid ${active?T.ink:T.border}`,borderRadius:10,cursor:"pointer",fontFamily:"inherit",fontSize:13,fontWeight:700,color:active?"white":T.muted}}>{p.label}</button>;
-          })}
+      {(shopifyToken&&shopifyStore)&&(
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 14px",background:T.greenBg,border:`1.5px solid ${T.green}`,borderRadius:12,marginBottom:16}}>
+          <p style={{color:T.green,fontSize:12,fontWeight:600}}>{syncMsg||"Connected to your Shopify store"}</p>
+          <button onClick={syncProducts} disabled={syncing} style={{padding:"6px 12px",background:T.green,border:"none",borderRadius:8,color:"white",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>{syncing?"…":"↻ Sync Products"}</button>
+        </div>
+      )}
+
+      {/* Product slots */}
+      {Array.from({length:numSlots}).map((_,i)=>(
+        <ProductSlot key={i} slotNum={i+1} totalSlots={numSlots} planMax={maxSlots}
+          productDesign={productSlots[i]}
+          onChange={d=>{const slots=[...productSlots];slots[i]=d;onChange(slots);}}
+          shopifyProducts={catalogue}/>
+      ))}
+
+      {/* Add product button */}
+      {numSlots<maxSlots&&(
+        <button onClick={()=>setNumSlots(n=>n+1)}
+          style={{width:"100%",padding:"12px",background:T.faint,border:`2px dashed ${T.border}`,borderRadius:14,color:T.muted,fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:"inherit",marginBottom:8}}>
+          + Add Another Product ({numSlots}/{maxSlots==="999"?"∞":maxSlots})
+        </button>
+      )}
+      {numSlots>=maxSlots&&maxSlots!==999&&(
+        <div style={{textAlign:"center",padding:"10px",background:T.accentBg,border:`1px solid ${T.accentBorder}`,borderRadius:10,marginBottom:8}}>
+          <p style={{color:T.accent,fontSize:12,fontWeight:600}}>You've reached your {plan.name} plan limit of {maxSlots} products. <a href="#" style={{color:T.accent}}>Upgrade to add more.</a></p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── STEP: BRAND ───────────────────────────────────────────────────────────────
+function StepBrand({data,setData}){
+  const s=k=>v=>setData(d=>({...d,[k]:v}));
+  return(<div><StepHeader title="Your Brand" subtitle="Tell us about the brand you're bringing to Merch on Demand."/><Inp label="Brand Name" required value={data.brandName} onChange={s("brandName")} placeholder="e.g. Rivera Designs"/><Inp label="Tagline" value={data.tagline} onChange={s("tagline")} placeholder="Bold streetwear for everyday people" hint="Shown on your store page — under 10 words."/><div style={{marginBottom:22}}><Label>Category</Label><div style={{display:"flex",gap:8,flexWrap:"wrap"}}>{["Fashion","Music","Sports","Art","Gaming","Lifestyle","Business","Other"].map(cat=>{const active=data.category===cat;return <button key={cat} onClick={()=>setData(d=>({...d,category:cat}))} style={{padding:"8px 16px",background:active?T.ink:T.faint,border:`1.5px solid ${active?T.ink:T.border}`,borderRadius:99,fontSize:12,fontWeight:600,color:active?"white":T.muted,cursor:"pointer",fontFamily:"inherit"}}>{cat}</button>;})}</div></div></div>);}
+
+// ── STEP: CONTACT ─────────────────────────────────────────────────────────────
+function StepContact({data,setData}){
+  const s=k=>v=>setData(d=>({...d,[k]:v}));
+  return(<div><StepHeader title="Contact Details" subtitle="Your personal details for account management and payout notifications."/><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 14px"}}><Inp label="First Name" required value={data.firstName} onChange={s("firstName")} placeholder="Jake"/><Inp label="Last Name" required value={data.lastName} onChange={s("lastName")} placeholder="Rivera"/></div><Inp label="Email" required type="email" value={data.email} onChange={s("email")} placeholder="jake@riveradesigns.com"/><Inp label="Phone" required type="tel" value={data.phone} onChange={s("phone")} placeholder="+61 4XX XXX XXX"/><div style={{height:1,background:T.border,margin:"6px 0 22px"}}/><p style={{fontFamily:"Georgia,serif",fontSize:17,fontWeight:700,color:T.ink,marginBottom:16}}>Business Address</p><Inp label="Street Address" required value={data.street} onChange={s("street")} placeholder="123 Main Street"/><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 14px"}}><Inp label="Suburb / City" required value={data.suburb} onChange={s("suburb")} placeholder="Melbourne"/><SelF label="State" required value={data.state} onChange={s("state")} options={["NSW","VIC","QLD","WA","SA","TAS","ACT","NT"]}/></div><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 14px"}}><Inp label="Postcode" required value={data.postcode} onChange={s("postcode")} placeholder="3000"/><SelF label="Country" value={data.country} onChange={s("country")} options={["Australia","New Zealand","United Kingdom","United States","Canada"]}/></div></div>);}
+
+// ── STEP: BANK ────────────────────────────────────────────────────────────────
+function StepBank({data,setData}){
+  const s=k=>v=>setData(d=>({...d,[k]:v}));
+  return(<div><StepHeader title="Banking Details" subtitle="We'll use these to send your monthly payouts. Encrypted and never shared."/><div style={{background:T.accentBg,border:`1.5px solid ${T.accentBorder}`,borderRadius:12,padding:14,marginBottom:22}}><p style={{color:T.accent,fontSize:12,fontWeight:700,marginBottom:4}}>🔒 Secure & Private</p><p style={{color:T.muted,fontSize:12,lineHeight:1.6}}>Used solely for monthly payout transfers via ABA Direct Entry.</p></div><Inp label="Bank Name" required value={data.bank} onChange={s("bank")} placeholder="e.g. Commonwealth Bank"/><Inp label="Account Name" required value={data.accountName} onChange={s("accountName")} placeholder="Must match your bank account exactly" hint="Use the exact name as it appears on your account."/><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 14px"}}><Inp label="BSB" required value={data.bsb} onChange={s("bsb")} placeholder="062-000" hint="Format XXX-XXX" mono/><Inp label="Account Number" required value={data.accountNumber} onChange={s("accountNumber")} placeholder="12345678" mono/></div></div>);}
+
+// ── STEP: PLAN ────────────────────────────────────────────────────────────────
+function StepPlan({selectedPlan,onSelect}){
+  return(<div><StepHeader title="Choose Your Plan" subtitle="Select the plan that best fits your brand. Upgrade any time."/><div style={{display:"flex",flexDirection:"column",gap:14}}>{PLANS.map(plan=>{const active=selectedPlan===plan.id;return(<div key={plan.id} onClick={()=>onSelect(plan.id)} style={{border:`2px solid ${active?plan.col:T.border}`,borderRadius:16,padding:20,cursor:"pointer",background:active?"rgba(0,0,0,0.01)":T.surface,position:"relative"}}>{plan.badge&&<div style={{position:"absolute",top:-1,right:16,background:plan.col,color:"white",fontSize:9,fontWeight:800,padding:"3px 10px",borderRadius:"0 0 8px 8px",letterSpacing:"0.1em"}}>{plan.badge}</div>}<div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12}}><div style={{display:"flex",alignItems:"center",gap:10}}><div style={{width:20,height:20,borderRadius:"50%",border:`2.5px solid ${active?plan.col:T.border}`,display:"flex",alignItems:"center",justifyContent:"center"}}>{active&&<div style={{width:10,height:10,borderRadius:"50%",background:plan.col}}/>}</div><div><p style={{fontFamily:"Georgia,serif",fontSize:19,fontWeight:700,color:T.ink}}>{plan.name}</p><p style={{color:plan.col,fontSize:13,fontWeight:700}}>${plan.payout} payout per item · up to {plan.maxProducts===999?"unlimited":plan.maxProducts} products</p></div></div><div style={{textAlign:"right"}}><p style={{fontFamily:"Georgia,serif",fontSize:26,fontWeight:900,color:plan.col,lineHeight:1}}>${plan.price}</p><p style={{color:T.muted,fontSize:11}}>/month</p></div></div><div style={{display:"flex",flexDirection:"column",gap:5}}>{plan.features.map(f=><div key={f} style={{display:"flex",alignItems:"flex-start",gap:8}}><span style={{color:plan.col,fontSize:13,marginTop:1,flexShrink:0}}>✓</span><p style={{color:T.muted,fontSize:13}}>{f}</p></div>)}</div></div>);})}</div></div>);}
+
+// ── STEP: PAYMENT ─────────────────────────────────────────────────────────────
+function StepPayment({plan}){
+  const selectedPlan=PLANS.find(p=>p.id===plan);
+  useEffect(()=>{
+    // Move the persistent Stripe card div into this step
+    setTimeout(()=>window.mountStripeCard&&window.mountStripeCard("stripe-slot"),100);
+    return()=>window.unmountStripeCard&&window.unmountStripeCard();
+  },[]);
+  return(
+    <div>
+      <StepHeader title="Payment Details" subtitle="Your subscription starts immediately. Cancel any time."/>
+      {selectedPlan&&(<div style={{background:T.faint,border:`1.5px solid ${T.border}`,borderRadius:14,padding:16,marginBottom:24}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}><div><p style={{color:T.ink,fontWeight:700,fontSize:15}}>{selectedPlan.name} Plan</p><p style={{color:T.muted,fontSize:12,marginTop:2}}>${selectedPlan.payout} per item · billed monthly</p></div><div style={{textAlign:"right"}}><p style={{color:selectedPlan.col,fontFamily:"Georgia,serif",fontSize:22,fontWeight:900}}>${selectedPlan.price}</p><p style={{color:T.muted,fontSize:10}}>/month</p></div></div></div>)}
+      <div style={{background:T.surface,border:`1.5px solid ${T.border}`,borderRadius:16,padding:20,marginBottom:16}}>
+        <p style={{fontFamily:"Georgia,serif",fontSize:15,fontWeight:700,color:T.ink,marginBottom:16}}>Card Details</p>
+        <div id="stripe-slot" style={{minHeight:46}}/>
+        <div style={{display:"flex",alignItems:"center",gap:8,marginTop:14,padding:"10px 12px",background:T.greenBg,border:`1px solid ${T.green}`,borderRadius:10}}>
+          <span style={{fontSize:16}}>🔒</span>
+          <p style={{color:T.green,fontSize:11,fontWeight:600}}>Secured by Stripe · 256-bit SSL</p>
         </div>
       </div>
-
-      {/* Logo uploads */}
-      <div style={{background:T.surface,border:`1.5px solid ${T.border}`,borderRadius:14,padding:18}}>
-        <p style={{fontFamily:"Georgia,serif",fontSize:15,fontWeight:700,color:T.ink,marginBottom:4}}>Upload Logos</p>
-        <p style={{color:T.muted,fontSize:12,marginBottom:16}}>Upload separate logos for front and back — PNG with transparent background works best.</p>
-        <div style={{display:"flex",gap:14}}>
-          <LogoSlot label="Front Logo"
-            logo={data.logos?.front||null}
-            onSet={l=>setData(d=>({...d,logos:{...(d.logos||{}),front:l}}))}
-            onClear={()=>setData(d=>({...d,logos:{...(d.logos||{}),front:null}}))}
-            hint="Drag to reposition after upload"/>
-          {activeProduct!=="cap"&&(
-            <LogoSlot label="Back Logo"
-              logo={data.logos?.back||null}
-              onSet={l=>setData(d=>({...d,logos:{...(d.logos||{}),back:l}}))}
-              onClear={()=>setData(d=>({...d,logos:{...(d.logos||{}),back:null}}))}
-              hint="Leave empty for blank back"/>
-          )}
-        </div>
-      </div>
-
-      {/* Canvas */}
-      <div style={{background:T.faint,border:`1.5px solid ${T.border}`,borderRadius:14,padding:16}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
-          <div>
-            <p style={{fontFamily:"Georgia,serif",fontSize:15,fontWeight:700,color:T.ink}}>Design Preview</p>
-            <p style={{color:T.muted,fontSize:11,marginTop:2}}>Drag logo to reposition · Drag ↔ corner to resize</p>
-          </div>
-          <span style={{background:T.accentBg,border:`1.5px solid ${T.accentBorder}`,borderRadius:8,padding:"4px 10px",fontSize:10,fontWeight:700,color:T.accent}}>DTF Print</span>
-        </div>
-        <div style={{display:"grid",gridTemplateColumns:activeProduct!=="cap"?"1fr 1fr":"1fr",gap:12}}>
-          <div style={{background:T.surface,border:`1.5px solid ${T.border}`,borderRadius:12,padding:12}}>
-            <GarmentCanvas side="front" colour={cd.colour}
-              logo={data.logos?.front||null}
-              placement={cd.frontPlacement}
-              onPlacementChange={p=>updD(activeProduct,{frontPlacement:p})}/>
-          </div>
-          {activeProduct!=="cap"&&(
-            <div style={{background:T.surface,border:`1.5px solid ${T.border}`,borderRadius:12,padding:12}}>
-              <GarmentCanvas side="back" colour={cd.colour}
-                logo={data.logos?.back||null}
-                placement={cd.backPlacement}
-                onPlacementChange={p=>updD(activeProduct,{backPlacement:p})}/>
-            </div>
-          )}
-        </div>
-        {(data.logos?.front||data.logos?.back)&&(
-          <div style={{marginTop:12,padding:"10px 12px",background:T.accentBg,borderRadius:10,display:"flex",gap:10}}>
-            <span style={{fontSize:16}}>💡</span>
-            <div>
-              <p style={{color:T.accent,fontSize:11,fontWeight:700,marginBottom:2}}>How to position</p>
-              <p style={{color:T.muted,fontSize:11,lineHeight:1.5}}>Click and drag the logo to move. Drag the <strong>orange ↔ corner</strong> to resize. Stay within the dashed print zone.</p>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Colour picker */}
-      <div style={{background:T.surface,border:`1.5px solid ${T.border}`,borderRadius:14,padding:18}}>
-        <p style={{fontFamily:"Georgia,serif",fontSize:15,fontWeight:700,color:T.ink,marginBottom:16}}>Colours &amp; Sizes</p>
-
-        {/* AS Colour Staple Tee badge */}
-        {activeProduct==="tee"&&(
-          <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 12px",background:T.greenBg,border:`1.5px solid ${T.green}`,borderRadius:10,marginBottom:16}}>
-            <span>🔗</span>
-            <div>
-              <p style={{color:T.green,fontSize:11,fontWeight:700}}>Shopify #5001 — Mens AS Colour Staple Tee</p>
-              <p style={{color:T.muted,fontSize:10}}>Premium 180gsm cotton · DTF print area: 36×42cm</p>
-            </div>
-          </div>
-        )}
-
-        <div style={{marginBottom:18}}>
-          <Label>Garment Colour — <span style={{color:T.accent}}>{curColour.name}</span></Label>
-          <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-            {AS_COLOURS.map(c=>(
-              <button key={c.hex} onClick={()=>updD(activeProduct,{colour:c.hex})} title={c.name}
-                style={{width:34,height:34,borderRadius:"50%",background:c.hex,border:`3px solid ${cd.colour===c.hex?T.accent:T.border}`,cursor:"pointer",boxShadow:cd.colour===c.hex?`0 0 0 2px white, 0 0 0 4px ${T.accent}`:"0 1px 3px rgba(0,0,0,0.15)",transition:"all 0.15s"}}/>
-            ))}
-          </div>
-        </div>
-
-        <div style={{marginBottom:16}}>
-          <Label>Sizes to offer</Label>
-          <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-            {AS_SIZES.map(sz=>{
-              const sel=(cd.sizes||[]).includes(sz);
-              return <button key={sz} onClick={()=>toggleSize(sz)} style={{padding:"7px 13px",background:sel?T.ink:T.faint,border:`1.5px solid ${sel?T.ink:T.border}`,borderRadius:8,fontSize:12,fontWeight:700,color:sel?"white":T.muted,cursor:"pointer",fontFamily:"inherit"}}>{sz}</button>;
-            })}
-          </div>
-          <p style={{color:T.muted,fontSize:11,marginTop:6}}>Select all sizes you want to offer.</p>
-        </div>
-      </div>
-
-      {/* Notes */}
-      <div>
-        <Label>Design Notes</Label>
-        <textarea value={cd.notes||""} onChange={e=>updD(activeProduct,{notes:e.target.value})}
-          placeholder="Any special instructions — logo size, placement details, colour matching, anything our team should know..."
-          rows={3} style={{width:"100%",padding:"12px 14px",background:T.surface,border:`1.5px solid ${T.border}`,borderRadius:10,fontSize:13,color:T.ink,fontFamily:"inherit",outline:"none",resize:"vertical",boxSizing:"border-box",lineHeight:1.6}}
-          onFocus={e=>e.target.style.borderColor=T.accent} onBlur={e=>e.target.style.borderColor=T.border}/>
-      </div>
+      {[["First charge",`$${selectedPlan?.price||"—"} today`],["Then billed","Monthly on same date"],["Cancel anytime","No lock-in contract"],["Payout rate",`$${selectedPlan?.payout||"—"} per item sold`]].map(([l,v])=>(
+        <div key={l} style={{display:"flex",justifyContent:"space-between",padding:"7px 0",borderBottom:`1px solid ${T.border}`}}><span style={{color:T.muted,fontSize:13}}>{l}</span><span style={{color:T.ink,fontSize:13,fontWeight:700}}>{v}</span></div>
+      ))}
     </div>
   );
 }
 
 // ── STEP: REVIEW ──────────────────────────────────────────────────────────────
-function StepReview({brand,contact,bank,planId,design}){
+function StepReview({brand,contact,bank,planId,productSlots}){
   const plan=PLANS.find(p=>p.id===planId);
   const Row=({l,v})=>v?<div style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:`1px solid ${T.faint}`}}><span style={{color:T.muted,fontSize:13}}>{l}</span><span style={{color:T.ink,fontSize:13,fontWeight:600,maxWidth:"60%",textAlign:"right"}}>{v}</span></div>:null;
-  const Sec=({title,children})=><div style={{marginBottom:22}}><p style={{fontFamily:"Georgia,serif",fontSize:15,fontWeight:700,color:T.ink,marginBottom:10,paddingBottom:8,borderBottom:`1.5px solid ${T.border}`}}>{title}</p>{children}</div>;
+  const Sec=({title,children})=><div style={{marginBottom:20}}><p style={{fontFamily:"Georgia,serif",fontSize:15,fontWeight:700,color:T.ink,marginBottom:10,paddingBottom:8,borderBottom:`1.5px solid ${T.border}`}}>{title}</p>{children}</div>;
+  const filledSlots=productSlots.filter(s=>s?.productId);
   return(
     <div>
       <StepHeader title="Review & Submit" subtitle="Check everything looks right before submitting."/>
       <Sec title="Brand"><Row l="Brand" v={brand.brandName}/><Row l="Tagline" v={brand.tagline}/><Row l="Category" v={brand.category}/></Sec>
       <Sec title="Contact"><Row l="Name" v={`${contact.firstName} ${contact.lastName}`}/><Row l="Email" v={contact.email}/><Row l="Phone" v={contact.phone}/><Row l="Address" v={[contact.street,contact.suburb,contact.state,contact.postcode].filter(Boolean).join(", ")}/></Sec>
       <Sec title="Banking"><Row l="Bank" v={bank.bank}/><Row l="Account Name" v={bank.accountName}/><Row l="BSB" v={bank.bsb}/><Row l="Account No." v={bank.accountNumber?`••••${bank.accountNumber.slice(-4)}`:""}/></Sec>
-      <Sec title="Subscription">{plan&&<div style={{background:T.faint,borderRadius:12,padding:14}}><div style={{display:"flex",justifyContent:"space-between"}}><p style={{fontWeight:700,color:T.ink}}>{plan.name} Plan</p><p style={{color:plan.colour,fontWeight:900,fontSize:18,fontFamily:"Georgia,serif"}}>${plan.price}/mo</p></div><p style={{color:T.muted,fontSize:12,marginTop:4}}>${plan.payout} payout per item sold</p></div>}</Sec>
-      <Sec title="Design Preferences">
-        <div style={{background:T.faint,borderRadius:12,padding:14}}>
-          {design.products?.length>0&&<p style={{color:T.muted,fontSize:12,marginBottom:4}}>Products: {design.products.join(", ")}</p>}
-          {design.colours&&<p style={{color:T.muted,fontSize:12,marginBottom:4}}>Colours: {design.colours}</p>}
-          {design.sizes?.length>0&&<p style={{color:T.muted,fontSize:12,marginBottom:4}}>Sizes: {design.sizes.join(", ")}</p>}
-          {design.placement?.length>0&&<p style={{color:T.muted,fontSize:12,marginBottom:4}}>Placement: {design.placement.join(", ")}</p>}
-          {design.notes&&<p style={{color:T.muted,fontSize:12,fontStyle:"italic"}}>"{design.notes}"</p>}
-        </div>
+      <Sec title="Subscription">{plan&&<div style={{background:T.faint,borderRadius:12,padding:14}}><div style={{display:"flex",justifyContent:"space-between"}}><p style={{fontWeight:700,color:T.ink}}>{plan.name} Plan</p><p style={{color:plan.col,fontWeight:900,fontSize:18,fontFamily:"Georgia,serif"}}>${plan.price}/mo</p></div><p style={{color:T.muted,fontSize:12,marginTop:4}}>${plan.payout} payout per item · up to {plan.maxProducts===999?"unlimited":plan.maxProducts} products</p></div>}</Sec>
+      <Sec title="Products Designed">
+        {filledSlots.length===0?<p style={{color:T.muted,fontSize:13}}>No products configured — you can add designs after approval.</p>
+        :filledSlots.map((s,i)=>{
+          const cat=AS_CATALOGUE.find(p=>p.id===s.productId);
+          return(<div key={i} style={{background:T.faint,borderRadius:10,padding:12,marginBottom:8}}>
+            <p style={{fontWeight:700,color:T.ink,marginBottom:4}}>{cat?.name||s.productId}</p>
+            {s.colour&&<div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}><div style={{width:14,height:14,borderRadius:"50%",background:s.colour,border:`1px solid ${T.border}`}}/><span style={{color:T.muted,fontSize:12}}>{cat?.colours.find(c=>c.h===s.colour)?.n||s.colour}</span></div>}
+            {s.sizes?.length>0&&<p style={{color:T.muted,fontSize:12,marginBottom:3}}>Sizes: {s.sizes.join(", ")}</p>}
+            {s.frontLogo&&<p style={{color:T.muted,fontSize:12,marginBottom:3}}>Front: {s.frontLogo.name}</p>}
+            {s.backLogo&&<p style={{color:T.muted,fontSize:12,marginBottom:3}}>Back: {s.backLogo.name}</p>}
+            {s.notes&&<p style={{color:T.muted,fontSize:12,fontStyle:"italic"}}>"{s.notes}"</p>}
+            <p style={{color:T.accent,fontSize:11,fontWeight:700,marginTop:4}}>Print: DTF</p>
+          </div>);
+        })}
       </Sec>
       <div style={{background:T.greenBg,border:`1.5px solid ${T.green}`,borderRadius:14,padding:18,textAlign:"center"}}>
         <p style={{fontSize:22,marginBottom:6}}>🎉</p>
         <p style={{color:T.green,fontWeight:700,fontSize:14,marginBottom:4}}>Ready to submit</p>
-        <p style={{color:T.muted,fontSize:13,lineHeight:1.6}}>Your card will be charged ${plan?.price}/month starting today. Our team reviews your application within 1–2 business days.</p>
+        <p style={{color:T.muted,fontSize:13,lineHeight:1.6}}>Your card will be charged ${plan?.price}/month. Our team reviews within 1–2 business days.</p>
       </div>
     </div>
   );
@@ -627,26 +507,7 @@ function StepReview({brand,contact,bank,planId,design}){
 // ── SUCCESS ───────────────────────────────────────────────────────────────────
 function Success({brandName,planId}){
   const plan=PLANS.find(p=>p.id===planId);
-  return(
-    <div style={{minHeight:"100vh",background:T.bg,display:"flex",alignItems:"center",justifyContent:"center",padding:24}}>
-      <div style={{maxWidth:440,width:"100%",textAlign:"center"}}>
-        <div style={{width:80,height:80,borderRadius:"50%",background:T.greenBg,border:`3px solid ${T.green}`,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 24px",fontSize:36}}>✓</div>
-        <h1 style={{fontFamily:"Georgia,serif",fontSize:30,fontWeight:700,color:T.ink,marginBottom:12}}>You're in!</h1>
-        <p style={{color:T.muted,fontSize:15,lineHeight:1.7,marginBottom:32}}>Welcome to Merch on Demand, <strong>{brandName}</strong>. You're on the <strong style={{color:plan?.colour}}>{plan?.name} Plan</strong>. Your subscription is active and our team will be in touch within 1–2 business days.</p>
-        <div style={{background:T.faint,border:`1.5px solid ${T.border}`,borderRadius:16,padding:20,textAlign:"left",marginBottom:24}}>
-          <p style={{fontWeight:700,color:T.ink,marginBottom:14}}>What happens next</p>
-          {[["1","Review","We review your brand and design preferences"],["2","Setup","Your collection goes live on the Merch on Demand store"],["3","Sell","Customers browse and order your products"],["4","Payout",`$${plan?.payout||10} per item sold, paid monthly to your bank`]].map(([n,t,d])=>(
-            <div key={n} style={{display:"flex",gap:12,marginBottom:14}}>
-              <div style={{width:28,height:28,borderRadius:"50%",background:T.ink,color:"white",display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,flexShrink:0}}>{n}</div>
-              <div><p style={{fontWeight:700,color:T.ink,fontSize:14}}>{t}</p><p style={{color:T.muted,fontSize:13}}>{d}</p></div>
-            </div>
-          ))}
-        </div>
-        <p style={{color:T.muted,fontSize:13}}>Questions? <span style={{color:T.accent,fontWeight:600}}>hello@merchantondemand.com.au</span></p>
-      </div>
-    </div>
-  );
-}
+  return(<div style={{minHeight:"100vh",background:T.bg,display:"flex",alignItems:"center",justifyContent:"center",padding:24}}><div style={{maxWidth:440,width:"100%",textAlign:"center"}}><div style={{width:80,height:80,borderRadius:"50%",background:T.greenBg,border:`3px solid ${T.green}`,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 24px",fontSize:36}}>✓</div><h1 style={{fontFamily:"Georgia,serif",fontSize:30,fontWeight:700,color:T.ink,marginBottom:12}}>You're in!</h1><p style={{color:T.muted,fontSize:15,lineHeight:1.7,marginBottom:32}}>Welcome to Merch on Demand, <strong>{brandName}</strong>. You're on the <strong style={{color:plan?.col}}>{plan?.name} Plan</strong>. Our team will be in touch within 1–2 business days.</p><div style={{background:T.faint,border:`1.5px solid ${T.border}`,borderRadius:16,padding:20,textAlign:"left",marginBottom:24}}><p style={{fontWeight:700,color:T.ink,marginBottom:14}}>What happens next</p>{[["1","Review","We review your brand and design preferences"],["2","Setup","Your collection goes live on the store"],["3","Sell","Customers order your products"],["4","Payout",`$${plan?.payout||10} per item sold, paid monthly`]].map(([n,t,d])=>(<div key={n} style={{display:"flex",gap:12,marginBottom:14}}><div style={{width:28,height:28,borderRadius:"50%",background:T.ink,color:"white",display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,flexShrink:0}}>{n}</div><div><p style={{fontWeight:700,color:T.ink,fontSize:14}}>{t}</p><p style={{color:T.muted,fontSize:13}}>{d}</p></div></div>))}</div><p style={{color:T.muted,fontSize:13}}>Questions? <span style={{color:T.accent,fontWeight:600}}>hello@merchantondemand.com.au</span></p></div></div>);}
 
 // ── ROOT APP ──────────────────────────────────────────────────────────────────
 function App(){
@@ -655,47 +516,19 @@ function App(){
   const[submitting,setSubmitting]=useState(false);
   const[submitErr,setSubmitErr]=useState("");
   const[cardReady,setCardReady]=useState(false);
-  const cardRef=useRef(null);
-  const cardMountRef=useRef(null);
-  const stripeElements=useRef(null);
-
-  // Mount Stripe card once into a div that lives OUTSIDE React
-  useEffect(()=>{
-    const timer=setTimeout(()=>{
-      if(cardRef.current)return;
-      const mountEl=document.getElementById("stripe-card-always");
-      if(!mountEl)return;
-      const card=getStripe().elements().create("card",{
-        style:{base:{color:"#1A1714",fontFamily:"Segoe UI,sans-serif",fontSize:"15px","::placeholder":{color:"#8C8580"}},invalid:{color:"#D4521A"}},
-      });
-      card.mount(mountEl);
-      card.on("change",e=>setCardReady(!e.empty&&!e.error));
-      cardRef.current=card;
-    },500);
-    return()=>clearTimeout(timer);
-  },[]);
-
-  // Move and show/hide the Stripe div based on current step
-  useEffect(()=>{
-    const stripeDiv=document.getElementById("stripe-card-always");
-    if(!stripeDiv)return;
-    if(step==="payment"){
-      const placeholder=document.getElementById("stripe-placeholder");
-      if(placeholder){
-        placeholder.appendChild(stripeDiv);
-        stripeDiv.style.display="block";
-      }
-    } else {
-      document.body.appendChild(stripeDiv);
-      stripeDiv.style.display="none";
-    }
-  },[step]);
 
   const[brand,setBrand]=useState({brandName:"",tagline:"",category:""});
   const[contact,setContact]=useState({firstName:"",lastName:"",email:"",phone:"",street:"",suburb:"",state:"",postcode:"",country:"Australia"});
   const[bank,setBank]=useState({bank:"",accountName:"",bsb:"",accountNumber:""});
   const[planId,setPlanId]=useState("starter");
-  const[design,setDesign]=useState({products:[],colours:"",sizes:[],placement:[],notes:""});
+  const[productSlots,setProductSlots]=useState([null]);
+
+  // Listen for Stripe card ready events
+  useEffect(()=>{
+    const handler=e=>setCardReady(e.detail);
+    window.addEventListener("stripeready",handler);
+    return()=>window.removeEventListener("stripeready",handler);
+  },[]);
 
   const stepIdx=STEPS.findIndex(s=>s.id===step);
   const goNext=()=>{if(stepIdx<STEPS.length-1)setStep(STEPS[stepIdx+1].id);};
@@ -714,123 +547,64 @@ function App(){
     setSubmitting(true);setSubmitErr("");
     try{
       const plan=PLANS.find(p=>p.id===planId);
-      // 1. Create Stripe payment method
-      const{paymentMethod,error}=await getStripe().createPaymentMethod({
-        type:"card",card:cardRef.current,
-        billing_details:{email:contact.email,name:`${contact.firstName} ${contact.lastName}`},
-      });
+      const stripe=window.getStripe();
+      const card=window.getCard();
+      if(!stripe||!card)throw new Error("Payment not ready. Please go back to the payment step and re-enter your card.");
+
+      // Create payment method
+      const{paymentMethod,error}=await stripe.createPaymentMethod({type:"card",card,billing_details:{email:contact.email,name:`${contact.firstName} ${contact.lastName}`}});
       if(error)throw new Error(error.message);
 
-      // 2. Create Stripe subscription via Railway proxy
-      const res=await fetch(PROXY+"/stripe/subscribe",{
-        method:"POST",
-        headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({
-          email:contact.email,
-          name:`${contact.firstName} ${contact.lastName}`,
-          priceId:PRICE_IDS[planId],
-          paymentMethodId:paymentMethod.id,
-        }),
-      });
+      // Create subscription via proxy
+      const res=await fetch(PROXY+"/stripe/subscribe",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email:contact.email,name:`${contact.firstName} ${contact.lastName}`,priceId:PRICE_IDS[planId],paymentMethodId:paymentMethod.id})});
       const subData=await res.json();
       if(!res.ok)throw new Error(subData.error||"Payment failed");
+      if(subData.clientSecret){const{error:ce}=await stripe.confirmCardPayment(subData.clientSecret);if(ce)throw new Error(ce.message);}
 
-      // 3. Confirm if 3D Secure required
-      if(subData.clientSecret){
-        const{error:ce}=await getStripe().confirmCardPayment(subData.clientSecret);
-        if(ce)throw new Error(ce.message);
-      }
-
-      // 4. Save vendor to Supabase
+      // Save to Supabase
       const{data:vendor,error:ve}=await sb.from("vendors").insert({
-        name:`${contact.firstName} ${contact.lastName}`,
-        email:contact.email.toLowerCase().trim(),
-        phone:contact.phone,
-        brand_name:brand.brandName,
-        store_name:brand.brandName,
+        name:`${contact.firstName} ${contact.lastName}`,email:contact.email.toLowerCase().trim(),phone:contact.phone,
+        brand_name:brand.brandName,store_name:brand.brandName,
         address:[contact.street,contact.suburb,contact.state,contact.postcode,contact.country].filter(Boolean).join(", "),
-        bank:bank.bank,
-        bsb:bank.bsb,
-        account_number:bank.accountNumber,
-        account_name:bank.accountName,
-        plan:planId,
-        payout_rate:plan.payout,
-        status:"pending",
-        notes:JSON.stringify({
-          tagline:brand.tagline,
-          category:brand.category,
-          design,
-          stripeCustomerId:subData.customerId,
-        }),
+        bank:bank.bank,bsb:bank.bsb,account_number:bank.accountNumber,account_name:bank.accountName,
+        plan:planId,payout_rate:plan.payout,status:"pending",
+        notes:JSON.stringify({tagline:brand.tagline,category:brand.category,productSlots,stripeCustomerId:subData.customerId}),
       }).select().single();
       if(ve)throw new Error(ve.message);
 
-      // 5. Save subscription to Supabase
-      await sb.from("subscriptions").insert({
-        vendor_id:vendor.id,
-        plan:planId,
-        price:plan.price,
-        payout_rate:plan.payout,
-        status:"active",
-        stripe_subscription_id:subData.subscriptionId,
-      });
-
+      await sb.from("subscriptions").insert({vendor_id:vendor.id,plan:planId,price:plan.price,payout_rate:plan.payout,status:"active",stripe_subscription_id:subData.subscriptionId});
       setSubmitted(true);
-    }catch(e){
-      setSubmitErr(e.message);
-    }finally{
-      setSubmitting(false);
-    }
+    }catch(e){setSubmitErr(e.message);}
+    finally{setSubmitting(false);}
   };
 
   if(submitted)return <Success brandName={brand.brandName} planId={planId}/>;
 
   return(
-    <>
-      <style>{`* { box-sizing: border-box; margin: 0; padding: 0; } body { background: ${T.bg}; } ::-webkit-scrollbar { width: 4px; } ::-webkit-scrollbar-thumb { background: ${T.border}; border-radius: 2px; } select option { background: white; color: ${T.ink}; }`}</style>
-      <div style={{background:T.bg,minHeight:"100vh",fontFamily:"'Segoe UI',sans-serif"}}>
-
-        {/* Header */}
-        <div style={{background:T.surface,borderBottom:`1.5px solid ${T.border}`,padding:"14px 24px",display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:50}}>
-          <div>
-            <p style={{fontFamily:"Georgia,serif",fontWeight:900,fontSize:17,color:T.ink}}>Merch on Demand</p>
-            <p style={{color:T.muted,fontSize:10,fontWeight:500}}>Vendor Application</p>
-          </div>
-          <div style={{background:T.accentBg,border:`1.5px solid ${T.accentBorder}`,borderRadius:99,padding:"4px 14px"}}>
-            <span style={{color:T.accent,fontSize:11,fontWeight:700}}>Step {stepIdx+1} of {STEPS.length}</span>
-          </div>
-        </div>
-
-        {/* Progress */}
-        <div style={{background:T.surface,borderBottom:`1.5px solid ${T.border}`,padding:"14px 24px 12px"}}>
-          <ProgressBar step={step}/>
-        </div>
-
-        {/* Content */}
-        <div style={{maxWidth:600,margin:"0 auto",padding:"28px 24px 80px"}}>
-          {step==="brand"   &&<StepBrand   data={brand}   setData={setBrand}/>}
-          {step==="contact" &&<StepContact data={contact} setData={setContact}/>}
-          {step==="bank"    &&<StepBank    data={bank}    setData={setBank}/>}
-          {step==="plan"    &&<StepPlan    selectedPlan={planId} onSelect={setPlanId}/>}
-          {step==="payment" &&<StepPayment plan={planId} cardMountRef={cardMountRef}/>}
-          {step==="design"  &&<StepDesign  data={design}  setData={setDesign}/>}
-          {step==="review"  &&<StepReview  brand={brand} contact={contact} bank={bank} planId={planId} design={design}/>}
-
-          {submitErr&&<div style={{background:"#FEE2E2",border:"1px solid #FCA5A5",borderRadius:10,padding:12,marginTop:16}}><p style={{color:"#991B1B",fontSize:13}}>⚠ {submitErr}</p></div>}
-
-          {/* Nav buttons */}
-          <div style={{display:"flex",gap:12,marginTop:30}}>
-            {stepIdx>0&&<Btn outline onClick={goBack}>← Back</Btn>}
-            {step==="review"
-              ?<Btn onClick={handleSubmit} disabled={submitting} isLast>{submitting?<Spin/>:"✓ Submit & Pay"}</Btn>
-              :<Btn onClick={goNext} disabled={!canContinue()}>Continue →</Btn>
-            }
-          </div>
+    <div style={{background:T.bg,minHeight:"100vh"}}>
+      <div style={{background:T.surface,borderBottom:`1.5px solid ${T.border}`,padding:"14px 24px",display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:50}}>
+        <div><p style={{fontFamily:"Georgia,serif",fontWeight:900,fontSize:17,color:T.ink}}>Merch on Demand</p><p style={{color:T.muted,fontSize:10,fontWeight:500}}>Vendor Application</p></div>
+        <div style={{background:T.accentBg,border:`1.5px solid ${T.accentBorder}`,borderRadius:99,padding:"4px 14px"}}><span style={{color:T.accent,fontSize:11,fontWeight:700}}>Step {stepIdx+1} of {STEPS.length}</span></div>
+      </div>
+      <div style={{background:T.surface,borderBottom:`1.5px solid ${T.border}`,padding:"14px 24px 12px"}}><ProgressBar step={step}/></div>
+      <div style={{maxWidth:640,margin:"0 auto",padding:"28px 24px 80px"}}>
+        {step==="brand"  &&<StepBrand   data={brand}   setData={setBrand}/>}
+        {step==="contact"&&<StepContact data={contact} setData={setContact}/>}
+        {step==="bank"   &&<StepBank    data={bank}    setData={setBank}/>}
+        {step==="plan"   &&<StepPlan    selectedPlan={planId} onSelect={setPlanId}/>}
+        {step==="payment"&&<StepPayment plan={planId}/>}
+        {step==="design" &&<StepDesign  planId={planId} productSlots={productSlots} onChange={setProductSlots} shopifyProducts={[]} shopifyToken="" shopifyStore=""/>}
+        {step==="review" &&<StepReview  brand={brand} contact={contact} bank={bank} planId={planId} productSlots={productSlots}/>}
+        {submitErr&&<div style={{background:"#FEE2E2",border:"1px solid #FCA5A5",borderRadius:10,padding:12,marginTop:16}}><p style={{color:"#991B1B",fontSize:13}}>⚠ {submitErr}</p></div>}
+        <div style={{display:"flex",gap:12,marginTop:30}}>
+          {stepIdx>0&&<button onClick={goBack} style={{flex:1,padding:"13px",background:T.faint,border:`1.5px solid ${T.border}`,borderRadius:12,fontSize:14,fontWeight:700,color:T.muted,cursor:"pointer",fontFamily:"inherit"}}>← Back</button>}
+          {step==="review"
+            ?<button onClick={handleSubmit} disabled={submitting} style={{flex:2,padding:"13px",background:submitting?T.faint:T.green,border:"none",borderRadius:12,fontSize:14,fontWeight:700,color:submitting?T.muted:"white",cursor:submitting?"default":"pointer",fontFamily:"inherit"}}>{submitting?<Spin/>:"✓ Submit & Pay"}</button>
+            :<button onClick={goNext} disabled={!canContinue()} style={{flex:2,padding:"13px",background:!canContinue()?T.faint:T.ink,border:"none",borderRadius:12,fontSize:14,fontWeight:700,color:!canContinue()?T.muted:"white",cursor:!canContinue()?"default":"pointer",fontFamily:"inherit"}}>Continue →</button>
+          }
         </div>
       </div>
-
-
-    </>
+    </div>
   );
 }
 

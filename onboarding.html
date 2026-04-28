@@ -13,342 +13,435 @@
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:#FAF8F4;font-family:'Segoe UI',sans-serif;color:#1A1714}
 @keyframes spin{to{transform:rotate(360deg)}}
-input,select,textarea{font-family:inherit}
+@keyframes fadein{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+input,select,textarea,button{font-family:inherit}
 ::-webkit-scrollbar{width:4px}
 ::-webkit-scrollbar-thumb{background:#E8E4DC;border-radius:2px}
 select option{background:white;color:#1A1714}
-#stripe-card-el{padding:12px 14px;background:#F0EDE8;border:1.5px solid #E8E4DC;border-radius:10px;min-height:46px;transition:border-color 0.15s}
 </style>
 </head>
 <body>
-<div id="sc-wrap"></div>
+<!-- Stripe card lives permanently outside React -->
+<div id="sc" style="position:fixed;left:-9999px;top:-9999px;pointer-events:none"></div>
 <div id="root"></div>
 
-<style>
-#sc-wrap{position:fixed;left:-9999px;top:-9999px;z-index:1}
-#sc-wrap.vis{position:static;left:auto;top:auto;padding:12px 14px;background:#F0EDE8;border:1.5px solid #E8E4DC;border-radius:10px}
-#sc-wrap.vis.foc{border-color:#D4521A}
-</style>
 <script>
-var _s=null,_c=null,_r=false;
+var _stripe=null,_card=null,_cardReady=false;
 window.addEventListener('load',function(){
-  _s=Stripe('pk_live_51O2OzhLgoqGtM7YGmzxSIZM6XNNfgJGpfIQYYcoT7JnFneionzk0gFfn0S8AiqvJZDhGI0zj2qQ28FvPF2Z0fFs7006Y2B3SXR');
-  _c=_s.elements().create('card',{style:{base:{color:'#1A1714',fontFamily:'Segoe UI,sans-serif',fontSize:'15px','::placeholder':{color:'#8C8580'}},invalid:{color:'#D4521A'}}});
-  _c.mount('#sc-wrap');
-  _c.on('change',function(e){_r=!e.empty&&!e.error;window.dispatchEvent(new CustomEvent('stripeready',{detail:_r}));});
-  _c.on('focus',function(){document.getElementById('sc-wrap').classList.add('foc');});
-  _c.on('blur',function(){document.getElementById('sc-wrap').classList.remove('foc');});
+  _stripe=Stripe('pk_live_51O2OzhLgoqGtM7YGmzxSIZM6XNNfgJGpfIQYYcoT7JnFneionzk0gFfn0S8AiqvJZDhGI0zj2qQ28FvPF2Z0fFs7006Y2B3SXR');
+  _card=_stripe.elements().create('card',{style:{base:{color:'#1A1714',fontFamily:'Segoe UI,sans-serif',fontSize:'15px','::placeholder':{color:'#8C8580'}},invalid:{color:'#D4521A'}}});
+  _card.mount('#sc');
+  _card.on('change',function(e){
+    _cardReady=!e.empty&&!e.error;
+    window.dispatchEvent(new CustomEvent('sc_ready',{detail:_cardReady}));
+  });
 });
-window.showStripe=function(){
-  var w=document.getElementById('sc-wrap');
-  var c=document.getElementById('sc-container');
-  if(w&&c){c.appendChild(w);w.classList.add('vis');}
+window.moveCardTo=function(id){
+  var el=document.getElementById(id);
+  var sc=document.getElementById('sc');
+  if(!el||!sc)return;
+  sc.style.cssText='padding:12px 14px;background:#F0EDE8;border:1.5px solid #E8E4DC;border-radius:10px;position:static;left:auto;top:auto;pointer-events:auto;width:100%';
+  el.appendChild(sc);
 };
-window.hideStripe=function(){
-  var w=document.getElementById('sc-wrap');
-  if(w){document.body.appendChild(w);w.classList.remove('vis');}
+window.parkCard=function(){
+  var sc=document.getElementById('sc');
+  if(sc){document.body.appendChild(sc);sc.style.cssText='position:fixed;left:-9999px;top:-9999px;pointer-events:none';}
 };
-window.getStripe=function(){return _s;};
-window.getCard=function(){return _c;};
+window.getS=function(){return _stripe;};
+window.getC=function(){return _card;};
 </script>
 
 <script type="text/babel">
 // ── Config ────────────────────────────────────────────────────────────────────
-const SUPA_URL  = "https://xwennpgxsndjpbwdmcwk.supabase.co";
-const SUPA_KEY  = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh3ZW5ucGd4c25kanBid2RtY3drIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY5ODc1MjksImV4cCI6MjA5MjU2MzUyOX0.LAyCQtlsF9puLftwyK67qwsYED7PksZeP3QoD0lmuTA";
-const PROXY     = "https://shopify-proxy-production-c72c.up.railway.app";
-const PRICE_IDS = {starter:"price_1TPZnhLgoqGtM7YGeJD5rUrp",growth:"price_1TPZplLgoqGtM7YGhboA3FYp",pro:"price_1TPZq1LgoqGtM7YGtx7koBm2"};
+const SUPA_URL = "https://xwennpgxsndjpbwdmcwk.supabase.co";
+const SUPA_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh3ZW5ucGd4c25kanBid2RtY3drIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY5ODc1MjksImV4cCI6MjA5MjU2MzUyOX0.LAyCQtlsF9puLftwyK67qwsYED7PksZeP3QoD0lmuTA";
+const PROXY    = "https://shopify-proxy-production-c72c.up.railway.app";
+const PRICE_IDS= {starter:"price_1TPZnhLgoqGtM7YGeJD5rUrp",growth:"price_1TPZplLgoqGtM7YGhboA3FYp",pro:"price_1TPZq1LgoqGtM7YGtx7koBm2"};
+
+// Storefront API — public, no proxy needed
+const SF_STORE = "shop-merch-on-demand.myshopify.com";
+const SF_TOKEN = "476072d25cd5d3ad49aa12975d4017f2";
+const SF_URL   = `https://${SF_STORE}/api/2024-01/graphql.json`;
+
 const sb = supabase.createClient(SUPA_URL, SUPA_KEY);
 
-// ── AS Colour Catalogue — hardcoded, swaps to live Shopify when token set ────
-const AS_CATALOGUE = [
-  { id:"5001", shopifyId:"5001", name:"AS Colour 5001 — Mens Staple Tee",      category:"Mens Tee",
-    colours:[{n:"White",h:"#FFFFFF"},{n:"Black",h:"#1A1714"},{n:"Navy",h:"#1B2A4A"},{n:"Forest",h:"#2D4A35"},{n:"Slate",h:"#6B7A8D"},{n:"Bone",h:"#E8DFD0"},{n:"Ash",h:"#C8C4BC"},{n:"Clay",h:"#B5734A"},{n:"Dusty Blue",h:"#7EA3B8"},{n:"Washed Black",h:"#3A3735"},{n:"Mauve",h:"#B8849A"},{n:"Military Green",h:"#5C6B4A"},{n:"Maroon",h:"#6B2035"},{n:"Red",h:"#C0392B"},{n:"Royal",h:"#2A5FA5"}],
-    sizes:["XS","S","M","L","XL","2XL","3XL","4XL","5XL"] },
-  { id:"3005", shopifyId:"3005", name:"AS Colour 3005 — Kids Staple Tee",      category:"Kids Tee",
-    colours:[{n:"White",h:"#FFFFFF"},{n:"Black",h:"#1A1714"},{n:"Navy",h:"#1B2A4A"},{n:"Forest",h:"#2D4A35"},{n:"Ash",h:"#C8C4BC"},{n:"Bone",h:"#E8DFD0"},{n:"Red",h:"#C0392B"},{n:"Royal",h:"#2A5FA5"}],
-    sizes:["2","4","6","8","10","12","14"] },
-  { id:"5101", shopifyId:"5101", name:"AS Colour 5101 — Womens Staple Tee",    category:"Womens Tee",
-    colours:[{n:"White",h:"#FFFFFF"},{n:"Black",h:"#1A1714"},{n:"Navy",h:"#1B2A4A"},{n:"Forest",h:"#2D4A35"},{n:"Slate",h:"#6B7A8D"},{n:"Bone",h:"#E8DFD0"},{n:"Dusty Blue",h:"#7EA3B8"},{n:"Mauve",h:"#B8849A"},{n:"Clay",h:"#B5734A"}],
-    sizes:["XS","S","M","L","XL","2XL"] },
-  { id:"5100", shopifyId:"5100", name:"AS Colour 5100 — Supply Hoodie",        category:"Hoodie",
-    colours:[{n:"White",h:"#FFFFFF"},{n:"Black",h:"#1A1714"},{n:"Navy",h:"#1B2A4A"},{n:"Forest",h:"#2D4A35"},{n:"Ash",h:"#C8C4BC"},{n:"Bone",h:"#E8DFD0"},{n:"Slate",h:"#6B7A8D"},{n:"Military Green",h:"#5C6B4A"}],
-    sizes:["XS","S","M","L","XL","2XL","3XL"] },
-  { id:"5102", shopifyId:"5102", name:"AS Colour 5102 — Stencil Hoodie",       category:"Hoodie",
-    colours:[{n:"White",h:"#FFFFFF"},{n:"Black",h:"#1A1714"},{n:"Navy",h:"#1B2A4A"},{n:"Forest",h:"#2D4A35"},{n:"Ash",h:"#C8C4BC"}],
-    sizes:["XS","S","M","L","XL","2XL","3XL"] },
-  { id:"1001", shopifyId:"1001", name:"AS Colour 1001 — Classic Cap",          category:"Cap",
-    colours:[{n:"White",h:"#FFFFFF"},{n:"Black",h:"#1A1714"},{n:"Navy",h:"#1B2A4A"},{n:"Forest",h:"#2D4A35"},{n:"Khaki",h:"#8B7355"},{n:"Red",h:"#C0392B"}],
-    sizes:["One Size"] },
-];
-
 const PLANS=[
-  {id:"starter",name:"Starter",price:29.95,payout:10,col:"#2A7A4B",maxProducts:3,features:["Up to 3 products","$10 per item sold","DTF print","Monthly payout","Email support"]},
-  {id:"growth", name:"Growth", price:59.95,payout:12,col:"#D4521A",maxProducts:10,badge:"POPULAR",features:["Up to 10 products","$12 per item sold","DTF print","Priority payout","Full analytics","Priority support","Featured placement"]},
-  {id:"pro",    name:"Pro",    price:99.95,payout:15,col:"#8B5CF6",maxProducts:999,badge:"BEST VALUE",features:["Unlimited products","$15 per item sold","DTF + Embroidery","Weekly payout","Advanced analytics","Dedicated manager","Homepage feature"]},
+  {id:"starter",name:"Starter",price:29.95,payout:10,col:"#2A7A4B",max:3,
+   features:["Up to 3 products","$10 per item sold","DTF print","Monthly payout","Email support"]},
+  {id:"growth", name:"Growth", price:59.95,payout:12,col:"#D4521A",max:10,badge:"POPULAR",
+   features:["Up to 10 products","$12 per item sold","DTF print","Priority payout","Full analytics","Priority support","Featured placement"]},
+  {id:"pro",    name:"Pro",    price:99.95,payout:15,col:"#8B5CF6",max:999,badge:"BEST VALUE",
+   features:["Unlimited products","$15 per item sold","DTF + Embroidery","Weekly payout","Advanced analytics","Dedicated manager","Homepage feature"]},
 ];
 const planOf=id=>PLANS.find(p=>p.id===id)||PLANS[0];
 
-const STEPS=[{id:"brand",label:"Brand",icon:"◆"},{id:"contact",label:"Contact",icon:"◎"},{id:"bank",label:"Banking",icon:"⬡"},{id:"plan",label:"Plan",icon:"★"},{id:"payment",label:"Payment",icon:"💳"},{id:"design",label:"Design",icon:"✦"},{id:"review",label:"Review",icon:"◈"}];
+const STEPS=[
+  {id:"brand",   label:"Brand",   icon:"◆"},
+  {id:"contact", label:"Contact", icon:"◎"},
+  {id:"bank",    label:"Banking", icon:"⬡"},
+  {id:"plan",    label:"Plan",    icon:"★"},
+  {id:"payment", label:"Pay",     icon:"💳"},
+  {id:"design",  label:"Design",  icon:"✦"},
+  {id:"review",  label:"Review",  icon:"◈"},
+];
 
-const T={bg:"#FAF8F4",surface:"#FFFFFF",border:"#E8E4DC",ink:"#1A1714",muted:"#8C8580",faint:"#F0EDE8",accent:"#D4521A",accentBg:"#FDF1EB",accentBorder:"#F0C4A8",green:"#2A7A4B",greenBg:"#EBF5EF"};
+const T={bg:"#FAF8F4",sur:"#FFFFFF",bdr:"#E8E4DC",ink:"#1A1714",mut:"#8C8580",fnt:"#F0EDE8",
+         acc:"#D4521A",acbg:"#FDF1EB",acbdr:"#F0C4A8",grn:"#2A7A4B",grnbg:"#EBF5EF"};
 
 const {useState,useRef,useEffect,useCallback}=React;
 
+// ── Fetch products from Shopify Storefront API ────────────────────────────────
+async function fetchShopifyProducts(){
+  const query=`{
+    products(first:50){
+      edges{
+        node{
+          id title handle productType
+          images(first:1){edges{node{url altText}}}
+          variants(first:100){
+            edges{
+              node{
+                id title price
+                selectedOptions{name value}
+              }
+            }
+          }
+        }
+      }
+    }
+  }`;
+  const res=await fetch(SF_URL,{
+    method:"POST",
+    headers:{"Content-Type":"application/json","X-Shopify-Storefront-Access-Token":SF_TOKEN},
+    body:JSON.stringify({query}),
+  });
+  if(!res.ok)throw new Error("Storefront API error: "+res.status);
+  const{data}=await res.json();
+  return (data?.products?.edges||[]).map(({node:p})=>{
+    const variants=p.variants.edges.map(e=>e.node);
+    // Extract unique colours and sizes from variant options
+    const colourMap={};
+    const sizeSet=new Set();
+    variants.forEach(v=>{
+      v.selectedOptions.forEach(opt=>{
+        if(/colou?r/i.test(opt.name))colourMap[opt.value]=opt.value;
+        if(/size/i.test(opt.name))sizeSet.add(opt.value);
+      });
+    });
+    const colours=Object.keys(colourMap);
+    const sizes=[...sizeSet];
+    const img=p.images.edges[0]?.node?.url||null;
+    return{
+      id:p.id,handle:p.handle,name:p.title,
+      category:p.productType||"",
+      image:img,colours,sizes,
+    };
+  });
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
-const readFileAsDataURL=file=>new Promise(res=>{const r=new FileReader();r.onload=e=>res(e.target.result);r.readAsDataURL(file);});
+const readImg=f=>new Promise(r=>{const fr=new FileReader();fr.onload=e=>r(e.target.result);fr.readAsDataURL(f);});
 
 // ── Atoms ─────────────────────────────────────────────────────────────────────
 function Spin(){return <span style={{display:"inline-block",width:14,height:14,border:"2px solid rgba(26,23,20,0.15)",borderTopColor:T.ink,borderRadius:"50%",animation:"spin 0.7s linear infinite"}}/>;}
-function Label({children,required}){return <label style={{display:"block",fontSize:11,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:6}}>{children}{required&&<span style={{color:T.accent,marginLeft:3}}>*</span>}</label>;}
-function Inp({label,required,value,onChange,placeholder,type="text",hint,mono}){return(<div style={{marginBottom:18}}>{label&&<Label required={required}>{label}</Label>}<input type={type} value={value||""} onChange={e=>onChange(e.target.value)} placeholder={placeholder} style={{width:"100%",padding:"11px 14px",background:T.surface,border:`1.5px solid ${T.border}`,borderRadius:10,fontSize:mono?12:14,color:T.ink,fontFamily:mono?"monospace":"inherit",outline:"none",boxSizing:"border-box"}} onFocus={e=>e.target.style.borderColor=T.accent} onBlur={e=>e.target.style.borderColor=T.border}/>{hint&&<p style={{color:T.muted,fontSize:11,marginTop:4}}>{hint}</p>}</div>);}
-function SelF({label,required,value,onChange,options}){return(<div style={{marginBottom:18}}>{label&&<Label required={required}>{label}</Label>}<select value={value||""} onChange={e=>onChange(e.target.value)} style={{width:"100%",padding:"11px 14px",background:T.surface,border:`1.5px solid ${T.border}`,borderRadius:10,fontSize:14,color:value?T.ink:T.muted,fontFamily:"inherit",outline:"none",appearance:"none",boxSizing:"border-box"}}><option value="">Select…</option>{options.map(o=><option key={o} value={o}>{o}</option>)}</select></div>);}
 
-function ProgressBar({step}){
-  const idx=STEPS.findIndex(s=>s.id===step);
-  const pct=(idx/(STEPS.length-1))*100;
-  return(<div><div style={{display:"flex",justifyContent:"space-between",marginBottom:10}}>{STEPS.map((s,i)=>{const done=i<idx,cur=i===idx;return(<div key={s.id} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:3}}><div style={{width:26,height:26,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,background:done?T.accent:cur?T.ink:T.faint,color:done||cur?"white":T.muted,border:`2px solid ${done?T.accent:cur?T.ink:T.border}`}}>{done?"✓":s.icon}</div><span style={{fontSize:8,fontWeight:700,color:cur?T.ink:T.muted,textTransform:"uppercase",letterSpacing:"0.06em"}}>{s.label}</span></div>);})}</div><div style={{height:3,background:T.border,borderRadius:99,overflow:"hidden"}}><div style={{height:3,width:`${pct}%`,background:T.accent,borderRadius:99,transition:"width 0.4s ease"}}/></div></div>);
+function Label({c,req}){return <label style={{display:"block",fontSize:11,fontWeight:700,color:T.mut,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:6}}>{c}{req&&<span style={{color:T.acc,marginLeft:3}}>*</span>}</label>;}
+
+function Inp({label,req,val,set,ph,type="text",hint,mono}){
+  return(<div style={{marginBottom:18}}>
+    {label&&<Label c={label} req={req}/>}
+    <input type={type} value={val||""} onChange={e=>set(e.target.value)} placeholder={ph}
+      style={{width:"100%",padding:"11px 14px",background:T.sur,border:`1.5px solid ${T.bdr}`,borderRadius:10,fontSize:mono?12:14,color:T.ink,fontFamily:mono?"monospace":"inherit",outline:"none",boxSizing:"border-box"}}
+      onFocus={e=>e.target.style.borderColor=T.acc} onBlur={e=>e.target.style.borderColor=T.bdr}/>
+    {hint&&<p style={{color:T.mut,fontSize:11,marginTop:4}}>{hint}</p>}
+  </div>);
 }
 
-function StepHeader({title,subtitle}){return(<div style={{marginBottom:26}}><h2 style={{fontFamily:"Georgia,serif",fontSize:24,fontWeight:700,color:T.ink,margin:0,lineHeight:1.2}}>{title}</h2>{subtitle&&<p style={{color:T.muted,fontSize:13,marginTop:6,lineHeight:1.6}}>{subtitle}</p>}</div>);}
+function Sel({label,req,val,set,opts}){
+  return(<div style={{marginBottom:18}}>
+    {label&&<Label c={label} req={req}/>}
+    <select value={val||""} onChange={e=>set(e.target.value)}
+      style={{width:"100%",padding:"11px 14px",background:T.sur,border:`1.5px solid ${T.bdr}`,borderRadius:10,fontSize:14,color:val?T.ink:T.mut,fontFamily:"inherit",outline:"none",appearance:"none",boxSizing:"border-box"}}>
+      <option value="">Select…</option>
+      {opts.map(o=><option key={o} value={o}>{o}</option>)}
+    </select>
+  </div>);
+}
 
-// ── PRODUCT DESIGNER ──────────────────────────────────────────────────────────
-function ProductSlot({slotNum,totalSlots,planMax,productDesign,onChange,shopifyProducts}){
-  const catalogue = shopifyProducts.length > 0 ? shopifyProducts : AS_CATALOGUE;
-  const[syncing,setSyncing]=useState(false);
-  const frontInputRef=useRef();
-  const backInputRef=useRef();
+function PBar({step}){
+  const idx=STEPS.findIndex(s=>s.id===step);
+  const pct=(idx/(STEPS.length-1))*100;
+  return(<div>
+    <div style={{display:"flex",justifyContent:"space-between",marginBottom:10}}>
+      {STEPS.map((s,i)=>{
+        const done=i<idx,cur=i===idx;
+        return(<div key={s.id} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
+          <div style={{width:26,height:26,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,background:done?T.acc:cur?T.ink:T.fnt,color:done||cur?"white":T.mut,border:`2px solid ${done?T.acc:cur?T.ink:T.bdr}`}}>
+            {done?"✓":s.icon}
+          </div>
+          <span style={{fontSize:8,fontWeight:700,color:cur?T.ink:T.mut,textTransform:"uppercase",letterSpacing:"0.05em"}}>{s.label}</span>
+        </div>);
+      })}
+    </div>
+    <div style={{height:3,background:T.bdr,borderRadius:99,overflow:"hidden"}}>
+      <div style={{height:3,width:`${pct}%`,background:T.acc,borderRadius:99,transition:"width 0.4s ease"}}/>
+    </div>
+  </div>);
+}
 
-  const d = productDesign || {productId:"",colour:"#FFFFFF",sizes:[],frontLogo:null,backLogo:null,frontPlacement:null,backPlacement:null,notes:""};
-  const selectedProduct = catalogue.find(p=>p.id===d.productId);
+function SHdr({title,sub}){
+  return(<div style={{marginBottom:24}}>
+    <h2 style={{fontFamily:"Georgia,serif",fontSize:24,fontWeight:700,color:T.ink,margin:0,lineHeight:1.2}}>{title}</h2>
+    {sub&&<p style={{color:T.mut,fontSize:13,marginTop:6,lineHeight:1.6}}>{sub}</p>}
+  </div>);
+}
 
-  const update=patch=>onChange({...d,...patch});
+// ── PRODUCT DESIGN SLOT ───────────────────────────────────────────────────────
+function DesignSlot({num,total,planMax,design,onChange,products,loadingProducts}){
+  const[showGrid,setShowGrid]=useState(!design?.productId);
+  const frontRef=useRef();
+  const backRef=useRef();
+  const svgRef=useRef();
 
-  const handleLogoUpload=async(file,side)=>{
-    if(!file||!file.type.startsWith("image/"))return;
-    const url=await readFileAsDataURL(file);
-    update({[side+"Logo"]:{name:file.name,url},[side+"Placement"]:null});
+  const d=design||{productId:"",colours:[],sizes:[],frontLogo:null,backLogo:null,frontPl:null,backPl:null,notes:""};
+  const prod=products.find(p=>p.id===d.productId);
+  const upd=patch=>onChange({...d,...patch});
+
+  const handleLogo=async(file,side)=>{
+    if(!file?.type.startsWith("image/"))return;
+    const url=await readImg(file);
+    upd({[side+"Logo"]:{name:file.name,url},[side+"Pl"]:null});
   };
 
-  // Draggable logo state
-  const isDragging=useRef(false);
-  const isResizing=useRef(false);
-  const dragStart=useRef({});
-  const containerRef=useRef();
+  // Drag/resize state
+  const drag=useRef(null);
+  const resize=useRef(null);
+
+  const pz=(side)=>side==="front"?{x:62,y:55,w:76,h:90}:{x:62,y:50,w:76,h:90};
 
   const getScale=()=>{
-    if(!containerRef.current)return{sx:1,sy:1};
-    const{width,height}=containerRef.current.getBoundingClientRect();
-    return{sx:width/200,sy:height/220};
+    if(!svgRef.current)return{sx:1,sy:1};
+    const r=svgRef.current.getBoundingClientRect();
+    return{sx:r.width/200,sy:r.height/220};
   };
 
   const startDrag=(e,side)=>{
     e.preventDefault();e.stopPropagation();
-    const pl=d[side+"Placement"]||{x:68,y:60,w:64,h:64};
+    const pl=d[side+"Pl"]||defPl(side);
     const{sx,sy}=getScale();
-    const clientX=e.touches?e.touches[0].clientX:e.clientX;
-    const clientY=e.touches?e.touches[0].clientY:e.clientY;
-    isDragging.current={side,pl};
-    dragStart.current={mx:clientX,my:clientY,lx:pl.x*sx,ly:pl.y*sy};
-    const pz={x:62,y:55,w:76,h:90};
+    const cx=e.touches?e.touches[0].clientX:e.clientX;
+    const cy=e.touches?e.touches[0].clientY:e.clientY;
+    drag.current={side,pl,mx:cx,my:cy,lx:pl.x*sx,ly:pl.y*sy};
+    const z=pz(side);
     const move=ev=>{
-      if(!isDragging.current)return;
-      const cx=ev.touches?ev.touches[0].clientX:ev.clientX;
-      const cy=ev.touches?ev.touches[0].clientY:ev.clientY;
+      if(!drag.current)return;
+      const ex=ev.touches?ev.touches[0].clientX:ev.clientX;
+      const ey=ev.touches?ev.touches[0].clientY:ev.clientY;
       const{sx:sx2,sy:sy2}=getScale();
-      let nx=(dragStart.current.lx+(cx-dragStart.current.mx))/sx2;
-      let ny=(dragStart.current.ly+(cy-dragStart.current.my))/sy2;
-      nx=Math.max(pz.x,Math.min(pz.x+pz.w-pl.w,nx));
-      ny=Math.max(pz.y,Math.min(pz.y+pz.h-pl.h,ny));
-      update({[side+"Placement"]:{...pl,x:nx,y:ny}});
+      let nx=(drag.current.lx+(ex-drag.current.mx))/sx2;
+      let ny=(drag.current.ly+(ey-drag.current.my))/sy2;
+      nx=Math.max(z.x,Math.min(z.x+z.w-pl.w,nx));
+      ny=Math.max(z.y,Math.min(z.y+z.h-pl.h,ny));
+      upd({[side+"Pl"]:{...pl,x:nx,y:ny}});
     };
-    const up=()=>{isDragging.current=false;window.removeEventListener("mousemove",move);window.removeEventListener("mouseup",up);window.removeEventListener("touchmove",move);window.removeEventListener("touchend",up);};
+    const up=()=>{drag.current=null;window.removeEventListener("mousemove",move);window.removeEventListener("mouseup",up);window.removeEventListener("touchmove",move);window.removeEventListener("touchend",up);};
     window.addEventListener("mousemove",move);window.addEventListener("mouseup",up);
     window.addEventListener("touchmove",move,{passive:false});window.addEventListener("touchend",up);
   };
 
   const startResize=(e,side)=>{
     e.preventDefault();e.stopPropagation();
-    const pl=d[side+"Placement"]||{x:68,y:60,w:64,h:64};
+    const pl=d[side+"Pl"]||defPl(side);
     const{sx}=getScale();
-    const clientX=e.touches?e.touches[0].clientX:e.clientX;
-    isResizing.current={side,pl};
-    dragStart.current={mx:clientX,lw:pl.w*sx};
-    const pz={x:62,y:55,w:76,h:90};
+    const cx=e.touches?e.touches[0].clientX:e.clientX;
+    resize.current={side,pl,mx:cx,lw:pl.w*sx};
+    const z=pz(side);
     const move=ev=>{
-      if(!isResizing.current)return;
-      const cx=ev.touches?ev.touches[0].clientX:ev.clientX;
+      if(!resize.current)return;
+      const ex=ev.touches?ev.touches[0].clientX:ev.clientX;
       const{sx:sx2}=getScale();
-      let nw=(dragStart.current.lw+(cx-dragStart.current.mx))/sx2;
-      nw=Math.max(10,Math.min(pz.x+pz.w-pl.x,nw));
-      const nh=nw*(pl.h/pl.w);
-      update({[side+"Placement"]:{...pl,w:nw,h:Math.min(nh,pz.y+pz.h-pl.y)}});
+      let nw=(resize.current.lw+(ex-resize.current.mx))/sx2;
+      nw=Math.max(10,Math.min(z.x+z.w-pl.x,nw));
+      upd({[side+"Pl"]:{...pl,w:nw,h:nw*(pl.h/pl.w)}});
     };
-    const up=()=>{isResizing.current=false;window.removeEventListener("mousemove",move);window.removeEventListener("mouseup",up);window.removeEventListener("touchmove",move);window.removeEventListener("touchend",up);};
+    const up=()=>{resize.current=null;window.removeEventListener("mousemove",move);window.removeEventListener("mouseup",up);window.removeEventListener("touchmove",move);window.removeEventListener("touchend",up);};
     window.addEventListener("mousemove",move);window.addEventListener("mouseup",up);
     window.addEventListener("touchmove",move,{passive:false});window.addEventListener("touchend",up);
   };
 
-  const renderCanvas=(side)=>{
+  const defPl=side=>{const z=pz(side);return{x:z.x+z.w*0.15,y:z.y+z.h*0.15,w:z.w*0.7,h:z.h*0.7};};
+
+  const canvas=(side)=>{
     const logo=d[side+"Logo"];
-    const pz={x:62,y:side==="front"?55:50,w:76,h:90};
-    const pl=d[side+"Placement"]||{x:pz.x+pz.w*0.15,y:pz.y+pz.h*0.15,w:pz.w*0.7,h:pz.h*0.7};
-    const colour=d.colour||"#FFFFFF";
-    const isLight=["#FFFFFF","#E8DFD0","#C8C4BC","#E8E4DC"].includes(colour);
-    const stroke=isLight?"#CCCCCC":"transparent";
-    const bodyPath="M55,20 L30,45 L5,38 L18,80 L40,75 L40,205 L160,205 L160,75 L182,80 L195,38 L170,45 L145,20 C140,28 130,35 100,35 C70,35 60,28 55,20 Z";
-    const isHoodie=selectedProduct?.category?.includes("Hoodie");
-    const isCap=selectedProduct?.category?.includes("Cap");
-
+    const pl=d[side+"Pl"]||defPl(side);
+    const z=pz(side);
+    const isHood=prod?.category?.toLowerCase().includes("hood");
+    const isCap=prod?.category?.toLowerCase().includes("cap")||prod?.name?.toLowerCase().includes("cap");
     if(isCap&&side==="back")return null;
-
+    const colour="#888888"; // neutral grey for preview
+    const bodyPath="M55,20 L30,45 L5,38 L18,80 L40,75 L40,205 L160,205 L160,75 L182,80 L195,38 L170,45 L145,20 C140,28 130,35 100,35 C70,35 60,28 55,20 Z";
     return(
-      <div style={{position:"relative",background:T.surface,border:`1.5px solid ${T.border}`,borderRadius:12,padding:10,flex:1}} ref={side==="front"?containerRef:null}>
-        <p style={{textAlign:"center",fontSize:9,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:6}}>{side==="front"?"FRONT":"BACK"}</p>
-
-        {/* Click to upload hint */}
-        {!logo&&<p style={{textAlign:"center",fontSize:10,color:T.accent,marginBottom:4}}>👆 Click garment to upload logo</p>}
-
-        <svg viewBox="0 0 200 220" style={{width:"100%",display:"block",cursor:"pointer"}}
-          onClick={()=>{if(!logo){side==="front"?frontInputRef.current?.click():backInputRef.current?.click();}}}
-        >
+      <div key={side} style={{flex:1,background:T.sur,border:`1.5px solid ${T.bdr}`,borderRadius:12,padding:10}}>
+        <p style={{textAlign:"center",fontSize:9,fontWeight:700,color:T.mut,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:4}}>{side==="front"?"FRONT":"BACK"}</p>
+        {!logo&&<p style={{textAlign:"center",fontSize:10,color:T.acc,marginBottom:3}}>👆 Click garment to upload</p>}
+        <svg ref={side==="front"?svgRef:null} viewBox="0 0 200 220" style={{width:"100%",display:"block",cursor:"pointer"}}
+          onClick={()=>{if(!logo){side==="front"?frontRef.current?.click():backRef.current?.click();}}}>
           <ellipse cx="100" cy="215" rx="70" ry="6" fill="rgba(0,0,0,0.06)"/>
-
           {isCap?(
             <>
-              <path d="M20,115 Q60,140 140,115 Q170,130 180,125 Q160,145 20,130 Z" fill={colour} stroke={stroke} strokeWidth="1"/>
-              <path d="M30,110 Q50,45 100,40 Q150,45 170,110 Q130,125 70,125 Z" fill={colour} stroke={stroke} strokeWidth="1.5"/>
+              <path d="M20,115 Q60,140 140,115 Q170,130 180,125 Q160,145 20,130 Z" fill="#888" stroke="#ccc" strokeWidth="1"/>
+              <path d="M30,110 Q50,45 100,40 Q150,45 170,110 Q130,125 70,125 Z" fill="#888" stroke="#ccc" strokeWidth="1.5"/>
               <line x1="100" y1="40" x2="100" y2="115" stroke="rgba(0,0,0,0.07)" strokeWidth="1"/>
-              <circle cx="100" cy="42" r="4" fill="rgba(0,0,0,0.12)"/>
+              <circle cx="100" cy="42" r="4" fill="rgba(0,0,0,0.15)"/>
             </>
           ):(
             <>
-              <path d={bodyPath} fill={colour} stroke={stroke} strokeWidth="1.5"/>
-              <path d="M55,20 C60,28 70,35 100,35 C130,35 140,28 145,20" fill="none" stroke={stroke||"rgba(0,0,0,0.1)"} strokeWidth="2"/>
-              {isHoodie&&<path d="M50,22 C45,10 65,2 100,2 C135,2 155,10 150,22 C145,15 130,8 100,8 C70,8 55,15 50,22 Z" fill={colour} stroke={stroke||"rgba(0,0,0,0.08)"} strokeWidth="1"/>}
-              {isHoodie&&side==="front"&&<rect x="65" y="155" width="70" height="40" rx="4" fill="rgba(0,0,0,0.06)" stroke="rgba(0,0,0,0.08)" strokeWidth="1"/>}
+              <path d={bodyPath} fill="#888" stroke="#ccc" strokeWidth="1.5"/>
+              <path d="M55,20 C60,28 70,35 100,35 C130,35 140,28 145,20" fill="none" stroke="#ccc" strokeWidth="2"/>
+              {isHood&&<path d="M50,22 C45,10 65,2 100,2 C135,2 155,10 150,22 C145,15 130,8 100,8 C70,8 55,15 50,22 Z" fill="#888" stroke="rgba(0,0,0,0.1)" strokeWidth="1"/>}
+              {isHood&&side==="front"&&<rect x="65" y="155" width="70" height="40" rx="4" fill="rgba(0,0,0,0.08)"/>}
               <line x1="40" y1="75" x2="40" y2="205" stroke="rgba(0,0,0,0.06)" strokeWidth="1"/>
               <line x1="160" y1="75" x2="160" y2="205" stroke="rgba(0,0,0,0.06)" strokeWidth="1"/>
             </>
           )}
-
-          {/* Print zone */}
-          <rect x={pz.x} y={pz.y} width={pz.w} height={pz.h} fill="rgba(212,82,26,0.04)" stroke="rgba(212,82,26,0.3)" strokeWidth="1" strokeDasharray="5,3" rx="2"/>
-          <text x={pz.x+pz.w/2} y={pz.y-3} textAnchor="middle" fontSize="7" fill="rgba(212,82,26,0.6)" fontFamily="Segoe UI,sans-serif">DTF PRINT ZONE</text>
-
+          <rect x={z.x} y={z.y} width={z.w} height={z.h} fill="rgba(212,82,26,0.04)" stroke="rgba(212,82,26,0.3)" strokeWidth="1" strokeDasharray="5,3" rx="2"/>
+          <text x={z.x+z.w/2} y={z.y-3} textAnchor="middle" fontSize="7" fill="rgba(212,82,26,0.6)" fontFamily="Segoe UI,sans-serif">DTF PRINT ZONE</text>
           {logo?(
             <>
-              <image href={logo.url} x={pl.x} y={pl.y} width={pl.w} height={pl.h}
-                preserveAspectRatio="xMidYMid meet"
-                style={{cursor:"move"}}
-                onMouseDown={e=>startDrag(e,side)}
-                onTouchStart={e=>startDrag(e,side)}/>
-              <rect x={pl.x} y={pl.y} width={pl.w} height={pl.h} fill="none" stroke={T.accent} strokeWidth="1.5" strokeDasharray="4,2" rx="2" style={{pointerEvents:"none"}}/>
-              <circle cx={pl.x+5} cy={pl.y+5} r="5" fill={T.accent} style={{pointerEvents:"none"}}/>
+              <image href={logo.url} x={pl.x} y={pl.y} width={pl.w} height={pl.h} preserveAspectRatio="xMidYMid meet" style={{cursor:"move"}} onMouseDown={e=>startDrag(e,side)} onTouchStart={e=>startDrag(e,side)}/>
+              <rect x={pl.x} y={pl.y} width={pl.w} height={pl.h} fill="none" stroke={T.acc} strokeWidth="1.5" strokeDasharray="4,2" rx="2" style={{pointerEvents:"none"}}/>
+              <circle cx={pl.x+5} cy={pl.y+5} r="5" fill={T.acc} style={{pointerEvents:"none"}}/>
               <text x={pl.x+5} y={pl.y+9} textAnchor="middle" fontSize="6" fill="white" style={{pointerEvents:"none"}}>✥</text>
-              <rect x={pl.x+pl.w-9} y={pl.y+pl.h-9} width="11" height="11" fill={T.accent} rx="2"
-                style={{cursor:"se-resize"}} onMouseDown={e=>startResize(e,side)} onTouchStart={e=>startResize(e,side)}/>
+              <rect x={pl.x+pl.w-9} y={pl.y+pl.h-9} width="11" height="11" fill={T.acc} rx="2" style={{cursor:"se-resize"}} onMouseDown={e=>startResize(e,side)} onTouchStart={e=>startResize(e,side)}/>
               <text x={pl.x+pl.w-3} y={pl.y+pl.h-1} fontSize="8" fill="white" style={{pointerEvents:"none"}}>↔</text>
             </>
           ):(
-            <text x={pz.x+pz.w/2} y={pz.y+pz.h/2+4} textAnchor="middle" fontSize="9" fill="rgba(212,82,26,0.4)" fontFamily="Segoe UI,sans-serif" fontWeight="600">Click to upload logo</text>
+            <text x={z.x+z.w/2} y={z.y+z.h/2+4} textAnchor="middle" fontSize="9" fill="rgba(212,82,26,0.4)" fontFamily="Segoe UI,sans-serif" fontWeight="600">Click to upload logo</text>
           )}
         </svg>
-
-        {/* Hidden file inputs */}
-        {side==="front"&&<input ref={frontInputRef} type="file" accept="image/*" style={{display:"none"}} onChange={e=>handleLogoUpload(e.target.files[0],"front")}/>}
-        {side==="back"&&<input ref={backInputRef} type="file" accept="image/*" style={{display:"none"}} onChange={e=>handleLogoUpload(e.target.files[0],"back")}/>}
-
-        {/* Logo label + remove */}
-        {logo&&(
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:6,padding:"4px 6px",background:T.greenBg,borderRadius:6}}>
-            <p style={{color:T.green,fontSize:10,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1}}>{logo.name}</p>
-            <button onClick={()=>{update({[side+"Logo"]:null,[side+"Placement"]:null});}} style={{background:"none",border:"none",color:T.muted,cursor:"pointer",fontSize:14,marginLeft:6,flexShrink:0}}>✕</button>
+        {logo?(
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:6,padding:"4px 8px",background:T.grnbg,borderRadius:6}}>
+            <p style={{color:T.grn,fontSize:10,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1}}>{logo.name}</p>
+            <button onClick={()=>upd({[side+"Logo"]:null,[side+"Pl"]:null})} style={{background:"none",border:"none",color:T.mut,cursor:"pointer",fontSize:14,marginLeft:4}}>✕</button>
           </div>
-        )}
-        {!logo&&(
-          <button onClick={()=>side==="front"?frontInputRef.current?.click():backInputRef.current?.click()}
-            style={{width:"100%",marginTop:6,padding:"6px",background:T.accentBg,border:`1px dashed ${T.accent}`,borderRadius:6,color:T.accent,fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>
+        ):(
+          <button onClick={()=>side==="front"?frontRef.current?.click():backRef.current?.click()}
+            style={{width:"100%",marginTop:6,padding:"6px",background:T.acbg,border:`1px dashed ${T.acc}`,borderRadius:6,color:T.acc,fontSize:11,fontWeight:600,cursor:"pointer"}}>
             + Upload {side} logo
           </button>
         )}
+        {side==="front"&&<input ref={frontRef} type="file" accept="image/*" style={{display:"none"}} onChange={e=>handleLogo(e.target.files[0],"front")}/>}
+        {side==="back"&&<input ref={backRef} type="file" accept="image/*" style={{display:"none"}} onChange={e=>handleLogo(e.target.files[0],"back")}/>}
       </div>
     );
   };
 
   return(
-    <div style={{background:T.surface,border:`1.5px solid ${T.border}`,borderRadius:16,padding:20,marginBottom:16}}>
-      {/* Slot header */}
+    <div style={{background:T.sur,border:`1.5px solid ${T.bdr}`,borderRadius:16,padding:20,marginBottom:16,animation:"fadein 0.3s ease"}}>
+      {/* Header */}
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
         <div>
-          <p style={{fontFamily:"Georgia,serif",fontSize:16,fontWeight:700,color:T.ink}}>Product {slotNum} of {planMax===999?"∞":planMax}</p>
-          <p style={{color:T.muted,fontSize:11,marginTop:2}}>Select a product and customise your design</p>
+          <p style={{fontFamily:"Georgia,serif",fontSize:16,fontWeight:700,color:T.ink}}>Product {num}{planMax!==999?` of ${planMax}`:""}</p>
+          <p style={{color:T.mut,fontSize:11,marginTop:2}}>Select a product and customise your design</p>
         </div>
-        {/* Slot progress dots */}
-        <div style={{display:"flex",gap:6}}>
-          {Array.from({length:Math.min(totalSlots,10)}).map((_,i)=>(
-            <div key={i} style={{width:8,height:8,borderRadius:"50%",background:i<slotNum?T.accent:i===slotNum-1?T.ink:T.border}}/>
+        <div style={{display:"flex",gap:5}}>
+          {Array.from({length:Math.min(total,planMax===999?total:planMax)}).map((_,i)=>(
+            <div key={i} style={{width:8,height:8,borderRadius:"50%",background:i<num?T.acc:i===num-1?T.ink:T.bdr}}/>
           ))}
         </div>
       </div>
 
-      {/* Product selector */}
-      <div style={{marginBottom:16}}>
-        <Label required>Product</Label>
-        <select value={d.productId||""} onChange={e=>update({productId:e.target.value,colour:"#FFFFFF",sizes:[]})}
-          style={{width:"100%",padding:"11px 14px",background:T.surface,border:`1.5px solid ${d.productId?T.green:T.border}`,borderRadius:10,fontSize:14,color:d.productId?T.ink:T.muted,fontFamily:"inherit",outline:"none",appearance:"none",boxSizing:"border-box"}}>
-          <option value="">— Select a product —</option>
-          {catalogue.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
-        </select>
-        {selectedProduct&&(
-          <div style={{display:"flex",alignItems:"center",gap:8,marginTop:8,padding:"6px 10px",background:T.greenBg,border:`1px solid ${T.green}`,borderRadius:8}}>
-            <span style={{fontSize:12}}>🔗</span>
-            <p style={{color:T.green,fontSize:11,fontWeight:600}}>Shopify #{selectedProduct.shopifyId} · DTF print · 36×42cm print area</p>
-          </div>
-        )}
-      </div>
-
-      {selectedProduct&&(
-        <>
-          {/* Design canvas — front & back side by side */}
-          <div style={{display:"flex",gap:12,marginBottom:16}}>
-            {renderCanvas("front")}
-            {selectedProduct.category!=="Cap"&&renderCanvas("back")}
-          </div>
-
-          <p style={{color:T.muted,fontSize:11,textAlign:"center",marginBottom:16}}>
-            💡 Click the garment to upload a logo · Drag to reposition · Drag ↔ corner to resize
-          </p>
-
-          {/* Colour picker */}
-          <div style={{marginBottom:16}}>
-            <Label>Garment Colour — <span style={{color:T.accent}}>{selectedProduct.colours.find(c=>c.h===d.colour)?.n||"Select"}</span></Label>
-            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-              {selectedProduct.colours.map(c=>(
-                <button key={c.h} onClick={()=>update({colour:c.h})} title={c.n}
-                  style={{width:32,height:32,borderRadius:"50%",background:c.h,border:`3px solid ${d.colour===c.h?T.accent:T.border}`,cursor:"pointer",boxShadow:d.colour===c.h?`0 0 0 2px white, 0 0 0 4px ${T.accent}`:"0 1px 3px rgba(0,0,0,0.15)",transition:"all 0.15s"}}/>
+      {/* Product selection grid */}
+      {(showGrid||!d.productId)?(
+        <div>
+          <Label c="Choose a product"/>
+          {loadingProducts?(
+            <div style={{textAlign:"center",padding:"30px 0"}}><Spin/><p style={{color:T.mut,fontSize:13,marginTop:8}}>Loading products from your store…</p></div>
+          ):products.length===0?(
+            <p style={{color:T.mut,fontSize:13,textAlign:"center",padding:"20px 0"}}>No products found in your store.</p>
+          ):(
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
+              {products.map(p=>(
+                <div key={p.id} onClick={()=>{upd({productId:p.id,colours:[],sizes:[]});setShowGrid(false);}}
+                  style={{border:`2px solid ${d.productId===p.id?T.acc:T.bdr}`,borderRadius:12,overflow:"hidden",cursor:"pointer",transition:"all 0.15s",background:d.productId===p.id?T.acbg:T.sur}}>
+                  {p.image?(
+                    <img src={p.image} alt={p.name} style={{width:"100%",aspectRatio:"1",objectFit:"cover",display:"block"}}/>
+                  ):(
+                    <div style={{width:"100%",aspectRatio:"1",background:T.fnt,display:"flex",alignItems:"center",justifyContent:"center",fontSize:32}}>👕</div>
+                  )}
+                  <div style={{padding:"8px 10px"}}>
+                    <p style={{color:T.ink,fontWeight:600,fontSize:12,lineHeight:1.3}}>{p.name}</p>
+                    <p style={{color:T.mut,fontSize:10,marginTop:2}}>{p.colours.length} colours · {p.sizes.length} sizes</p>
+                  </div>
+                </div>
               ))}
             </div>
+          )}
+        </div>
+      ):(
+        <>
+          {/* Selected product header */}
+          <div style={{display:"flex",alignItems:"center",gap:12,padding:"10px 14px",background:T.grnbg,border:`1px solid ${T.grn}`,borderRadius:10,marginBottom:16}}>
+            {prod?.image&&<img src={prod.image} alt="" style={{width:40,height:40,borderRadius:6,objectFit:"cover"}}/>}
+            <div style={{flex:1}}>
+              <p style={{color:T.grn,fontWeight:700,fontSize:13}}>{prod?.name||"Product"}</p>
+              <p style={{color:T.mut,fontSize:11}}>Shopify · DTF print · 36×42cm</p>
+            </div>
+            <button onClick={()=>setShowGrid(true)} style={{background:"none",border:`1px solid ${T.bdr}`,borderRadius:8,padding:"5px 10px",fontSize:11,color:T.mut,cursor:"pointer"}}>Change</button>
           </div>
 
-          {/* Size selector */}
-          <div style={{marginBottom:16}}>
-            <Label>Sizes to offer</Label>
-            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-              {selectedProduct.sizes.map(sz=>{
-                const sel=(d.sizes||[]).includes(sz);
-                return <button key={sz} onClick={()=>update({sizes:sel?(d.sizes||[]).filter(s=>s!==sz):[...(d.sizes||[]),sz]})} style={{padding:"6px 13px",background:sel?T.ink:T.faint,border:`1.5px solid ${sel?T.ink:T.border}`,borderRadius:8,fontSize:12,fontWeight:700,color:sel?"white":T.muted,cursor:"pointer",fontFamily:"inherit"}}>{sz}</button>;
-              })}
-            </div>
+          {/* Design canvases */}
+          <div style={{display:"flex",gap:12,marginBottom:12}}>
+            {canvas("front")}
+            {!prod?.category?.toLowerCase().includes("cap")&&!prod?.name?.toLowerCase().includes("cap")&&canvas("back")}
           </div>
+          <p style={{color:T.mut,fontSize:11,textAlign:"center",marginBottom:16}}>💡 Click garment to upload logo · Drag to reposition · Drag ↔ to resize</p>
+
+          {/* Colour selector — multiple */}
+          {prod?.colours?.length>0&&(
+            <div style={{marginBottom:16}}>
+              <Label c={`Colours to offer${d.colours?.length>0?` (${d.colours.length} selected)`:""}`}/>
+              <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                {prod.colours.map(col=>{
+                  const sel=(d.colours||[]).includes(col);
+                  // Try to map colour name to approximate hex
+                  const hexMap={"White":"#FFFFFF","Black":"#1A1714","Navy":"#1B2A4A","Forest":"#2D4A35","Slate":"#6B7A8D","Bone":"#E8DFD0","Ash":"#C8C4BC","Clay":"#B5734A","Dusty Blue":"#7EA3B8","Washed Black":"#3A3735","Mauve":"#B8849A","Military Green":"#5C6B4A","Maroon":"#6B2035","Red":"#C0392B","Royal":"#2A5FA5","Khaki":"#8B7355","Stone":"#C0B89A","Faded Black":"#3D3535","Natural":"#E8D8C0","Lilac":"#C8A8C8","Sage":"#8B9E7E"};
+                  const hex=hexMap[col]||"#888888";
+                  const isLight=["#FFFFFF","#E8DFD0","#C8C4BC","#E8D8C0","#E8E4DC"].includes(hex);
+                  return(
+                    <button key={col} onClick={()=>upd({colours:sel?(d.colours||[]).filter(c=>c!==col):[...(d.colours||[]),col]})}
+                      title={col}
+                      style={{display:"flex",alignItems:"center",gap:6,padding:"5px 10px",background:sel?T.ink:T.fnt,border:`1.5px solid ${sel?T.ink:T.bdr}`,borderRadius:99,cursor:"pointer",transition:"all 0.15s"}}>
+                      <div style={{width:14,height:14,borderRadius:"50%",background:hex,border:isLight?"1px solid #ccc":"none",flexShrink:0}}/>
+                      <span style={{fontSize:11,fontWeight:sel?700:500,color:sel?"white":T.mut}}>{col}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              <p style={{color:T.mut,fontSize:11,marginTop:6}}>Select all colours you want to offer. One design applies to all colours.</p>
+            </div>
+          )}
+
+          {/* Size selector */}
+          {prod?.sizes?.length>0&&(
+            <div style={{marginBottom:16}}>
+              <Label c="Sizes to offer"/>
+              <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                {prod.sizes.map(sz=>{
+                  const sel=(d.sizes||[]).includes(sz);
+                  return <button key={sz} onClick={()=>upd({sizes:sel?(d.sizes||[]).filter(s=>s!==sz):[...(d.sizes||[]),sz]})} style={{padding:"6px 13px",background:sel?T.ink:T.fnt,border:`1.5px solid ${sel?T.ink:T.bdr}`,borderRadius:8,fontSize:12,fontWeight:700,color:sel?"white":T.mut,cursor:"pointer"}}>{sz}</button>;
+                })}
+              </div>
+            </div>
+          )}
 
           {/* Notes */}
           <div>
-            <Label>Design Notes for this product</Label>
-            <textarea value={d.notes||""} onChange={e=>update({notes:e.target.value})}
-              placeholder="e.g. Front logo centred chest, approx 20cm wide. Back blank."
-              rows={2} style={{width:"100%",padding:"10px 14px",background:T.surface,border:`1.5px solid ${T.border}`,borderRadius:10,fontSize:13,color:T.ink,fontFamily:"inherit",outline:"none",resize:"none",boxSizing:"border-box",lineHeight:1.6}}
-              onFocus={e=>e.target.style.borderColor=T.accent} onBlur={e=>e.target.style.borderColor=T.border}/>
+            <Label c="Design Notes"/>
+            <textarea value={d.notes||""} onChange={e=>upd({notes:e.target.value})}
+              placeholder="Any special instructions for this product…" rows={2}
+              style={{width:"100%",padding:"10px 14px",background:T.sur,border:`1.5px solid ${T.bdr}`,borderRadius:10,fontSize:13,color:T.ink,fontFamily:"inherit",outline:"none",resize:"none",boxSizing:"border-box",lineHeight:1.6}}
+              onFocus={e=>e.target.style.borderColor=T.acc} onBlur={e=>e.target.style.borderColor=T.bdr}/>
           </div>
         </>
       )}
@@ -356,185 +449,255 @@ function ProductSlot({slotNum,totalSlots,planMax,productDesign,onChange,shopifyP
   );
 }
 
-// ── STEP: DESIGN ──────────────────────────────────────────────────────────────
-function StepDesign({planId,productSlots,onChange,shopifyProducts,shopifyToken,shopifyStore}){
-  const plan=planOf(planId);
-  const maxSlots=plan.maxProducts===999?10:plan.maxProducts;
-  const[numSlots,setNumSlots]=useState(Math.max(1,productSlots.filter(Boolean).length)||1);
-  const[syncing,setSyncing]=useState(false);
-  const[syncMsg,setSyncMsg]=useState("");
-  const[liveProducts,setLiveProducts]=useState(shopifyProducts||[]);
-
-  // Sync from Shopify if token available
-  const syncProducts=useCallback(async()=>{
-    if(!shopifyToken||!shopifyStore)return;
-    setSyncing(true);setSyncMsg("Fetching products from Shopify…");
-    try{
-      const r=await fetch(`${PROXY}/shopify?store=${encodeURIComponent(shopifyStore)}&path=products.json?limit=250`,{headers:{"x-shopify-token":shopifyToken}});
-      if(!r.ok)throw new Error("HTTP "+r.status);
-      const{products}=await r.json();
-      const mapped=products.map(p=>({
-        id:p.id.toString(),shopifyId:p.id.toString(),name:p.title,
-        category:p.product_type||p.title,
-        colours:[...new Map(p.variants.filter(v=>v.option1).map(v=>[v.option1,{n:v.option1,h:"#888888"}])).values()],
-        sizes:[...new Set(p.variants.filter(v=>v.option2).map(v=>v.option2))],
-      }));
-      setLiveProducts(mapped);
-      setSyncMsg(`✓ ${mapped.length} products loaded from Shopify`);
-    }catch(e){setSyncMsg("Could not load from Shopify — using catalogue");}
-    finally{setSyncing(false);setTimeout(()=>setSyncMsg(""),4000);}
-  },[shopifyToken,shopifyStore]);
-
-  const catalogue=liveProducts.length>0?liveProducts:AS_CATALOGUE;
-
-  return(
-    <div>
-      <StepHeader title="Product Design" subtitle={`Design up to ${maxSlots===999?"unlimited":maxSlots} products on your ${plan.name} plan. Click the garment to upload your logo.`}/>
-
-      {(shopifyToken&&shopifyStore)&&(
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 14px",background:T.greenBg,border:`1.5px solid ${T.green}`,borderRadius:12,marginBottom:16}}>
-          <p style={{color:T.green,fontSize:12,fontWeight:600}}>{syncMsg||"Connected to your Shopify store"}</p>
-          <button onClick={syncProducts} disabled={syncing} style={{padding:"6px 12px",background:T.green,border:"none",borderRadius:8,color:"white",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>{syncing?"…":"↻ Sync Products"}</button>
-        </div>
-      )}
-
-      {/* Product slots */}
-      {Array.from({length:numSlots}).map((_,i)=>(
-        <ProductSlot key={i} slotNum={i+1} totalSlots={numSlots} planMax={maxSlots}
-          productDesign={productSlots[i]}
-          onChange={d=>{const slots=[...productSlots];slots[i]=d;onChange(slots);}}
-          shopifyProducts={catalogue}/>
-      ))}
-
-      {/* Add product button */}
-      {numSlots<maxSlots&&(
-        <button onClick={()=>setNumSlots(n=>n+1)}
-          style={{width:"100%",padding:"12px",background:T.faint,border:`2px dashed ${T.border}`,borderRadius:14,color:T.muted,fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:"inherit",marginBottom:8}}>
-          + Add Another Product ({numSlots}/{maxSlots==="999"?"∞":maxSlots})
-        </button>
-      )}
-      {numSlots>=maxSlots&&maxSlots!==999&&(
-        <div style={{textAlign:"center",padding:"10px",background:T.accentBg,border:`1px solid ${T.accentBorder}`,borderRadius:10,marginBottom:8}}>
-          <p style={{color:T.accent,fontSize:12,fontWeight:600}}>You've reached your {plan.name} plan limit of {maxSlots} products. <a href="#" style={{color:T.accent}}>Upgrade to add more.</a></p>
-        </div>
-      )}
+// ── STEP: BRAND ───────────────────────────────────────────────────────────────
+function StepBrand({d,set}){
+  const s=k=>v=>set(x=>({...x,[k]:v}));
+  return(<div>
+    <SHdr title="Your Brand" sub="Tell us about the brand you're bringing to Merch on Demand."/>
+    <Inp label="Brand Name" req val={d.brandName} set={s("brandName")} ph="e.g. Rivera Designs"/>
+    <Inp label="Tagline" val={d.tagline} set={s("tagline")} ph="Bold streetwear for everyday people" hint="Under 10 words — shown on your store page."/>
+    <div style={{marginBottom:22}}>
+      <Label c="Category"/>
+      <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+        {["Fashion","Music","Sports","Art","Gaming","Lifestyle","Business","Other"].map(cat=>{
+          const a=d.category===cat;
+          return <button key={cat} onClick={()=>set(x=>({...x,category:cat}))} style={{padding:"8px 16px",background:a?T.ink:T.fnt,border:`1.5px solid ${a?T.ink:T.bdr}`,borderRadius:99,fontSize:12,fontWeight:600,color:a?"white":T.mut,cursor:"pointer"}}>{cat}</button>;
+        })}
+      </div>
     </div>
-  );
+  </div>);
 }
 
-// ── STEP: BRAND ───────────────────────────────────────────────────────────────
-function StepBrand({data,setData}){
-  const s=k=>v=>setData(d=>({...d,[k]:v}));
-  return(<div><StepHeader title="Your Brand" subtitle="Tell us about the brand you're bringing to Merch on Demand."/><Inp label="Brand Name" required value={data.brandName} onChange={s("brandName")} placeholder="e.g. Rivera Designs"/><Inp label="Tagline" value={data.tagline} onChange={s("tagline")} placeholder="Bold streetwear for everyday people" hint="Shown on your store page — under 10 words."/><div style={{marginBottom:22}}><Label>Category</Label><div style={{display:"flex",gap:8,flexWrap:"wrap"}}>{["Fashion","Music","Sports","Art","Gaming","Lifestyle","Business","Other"].map(cat=>{const active=data.category===cat;return <button key={cat} onClick={()=>setData(d=>({...d,category:cat}))} style={{padding:"8px 16px",background:active?T.ink:T.faint,border:`1.5px solid ${active?T.ink:T.border}`,borderRadius:99,fontSize:12,fontWeight:600,color:active?"white":T.muted,cursor:"pointer",fontFamily:"inherit"}}>{cat}</button>;})}</div></div></div>);}
-
 // ── STEP: CONTACT ─────────────────────────────────────────────────────────────
-function StepContact({data,setData}){
-  const s=k=>v=>setData(d=>({...d,[k]:v}));
-  return(<div><StepHeader title="Contact Details" subtitle="Your personal details for account management and payout notifications."/><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 14px"}}><Inp label="First Name" required value={data.firstName} onChange={s("firstName")} placeholder="Jake"/><Inp label="Last Name" required value={data.lastName} onChange={s("lastName")} placeholder="Rivera"/></div><Inp label="Email" required type="email" value={data.email} onChange={s("email")} placeholder="jake@riveradesigns.com"/><Inp label="Phone" required type="tel" value={data.phone} onChange={s("phone")} placeholder="+61 4XX XXX XXX"/><div style={{height:1,background:T.border,margin:"6px 0 22px"}}/><p style={{fontFamily:"Georgia,serif",fontSize:17,fontWeight:700,color:T.ink,marginBottom:16}}>Business Address</p><Inp label="Street Address" required value={data.street} onChange={s("street")} placeholder="123 Main Street"/><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 14px"}}><Inp label="Suburb / City" required value={data.suburb} onChange={s("suburb")} placeholder="Melbourne"/><SelF label="State" required value={data.state} onChange={s("state")} options={["NSW","VIC","QLD","WA","SA","TAS","ACT","NT"]}/></div><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 14px"}}><Inp label="Postcode" required value={data.postcode} onChange={s("postcode")} placeholder="3000"/><SelF label="Country" value={data.country} onChange={s("country")} options={["Australia","New Zealand","United Kingdom","United States","Canada"]}/></div></div>);}
+function StepContact({d,set}){
+  const s=k=>v=>set(x=>({...x,[k]:v}));
+  return(<div>
+    <SHdr title="Contact Details" sub="Your personal details for account management and payout notifications."/>
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 14px"}}>
+      <Inp label="First Name" req val={d.firstName} set={s("firstName")} ph="Jake"/>
+      <Inp label="Last Name"  req val={d.lastName}  set={s("lastName")}  ph="Rivera"/>
+    </div>
+    <Inp label="Email" req type="email" val={d.email} set={s("email")} ph="jake@riveradesigns.com"/>
+    <Inp label="Phone" req type="tel"   val={d.phone} set={s("phone")} ph="+61 4XX XXX XXX"/>
+    <div style={{height:1,background:T.bdr,margin:"6px 0 22px"}}/>
+    <p style={{fontFamily:"Georgia,serif",fontSize:17,fontWeight:700,color:T.ink,marginBottom:16}}>Business Address</p>
+    <Inp label="Street Address" req val={d.street}  set={s("street")}  ph="123 Main Street"/>
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 14px"}}>
+      <Inp label="Suburb / City" req val={d.suburb} set={s("suburb")} ph="Melbourne"/>
+      <Sel label="State" req val={d.state} set={s("state")} opts={["NSW","VIC","QLD","WA","SA","TAS","ACT","NT"]}/>
+    </div>
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 14px"}}>
+      <Inp label="Postcode" req val={d.postcode} set={s("postcode")} ph="3000"/>
+      <Sel label="Country" val={d.country} set={s("country")} opts={["Australia","New Zealand","United Kingdom","United States","Canada"]}/>
+    </div>
+  </div>);
+}
 
 // ── STEP: BANK ────────────────────────────────────────────────────────────────
-function StepBank({data,setData}){
-  const s=k=>v=>setData(d=>({...d,[k]:v}));
-  return(<div><StepHeader title="Banking Details" subtitle="We'll use these to send your monthly payouts. Encrypted and never shared."/><div style={{background:T.accentBg,border:`1.5px solid ${T.accentBorder}`,borderRadius:12,padding:14,marginBottom:22}}><p style={{color:T.accent,fontSize:12,fontWeight:700,marginBottom:4}}>🔒 Secure & Private</p><p style={{color:T.muted,fontSize:12,lineHeight:1.6}}>Used solely for monthly payout transfers via ABA Direct Entry.</p></div><Inp label="Bank Name" required value={data.bank} onChange={s("bank")} placeholder="e.g. Commonwealth Bank"/><Inp label="Account Name" required value={data.accountName} onChange={s("accountName")} placeholder="Must match your bank account exactly" hint="Use the exact name as it appears on your account."/><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 14px"}}><Inp label="BSB" required value={data.bsb} onChange={s("bsb")} placeholder="062-000" hint="Format XXX-XXX" mono/><Inp label="Account Number" required value={data.accountNumber} onChange={s("accountNumber")} placeholder="12345678" mono/></div></div>);}
+function StepBank({d,set}){
+  const s=k=>v=>set(x=>({...x,[k]:v}));
+  return(<div>
+    <SHdr title="Banking Details" sub="We'll use these to send your monthly payouts. Encrypted and never shared."/>
+    <div style={{background:T.acbg,border:`1.5px solid ${T.acbdr}`,borderRadius:12,padding:14,marginBottom:22}}>
+      <p style={{color:T.acc,fontSize:12,fontWeight:700,marginBottom:4}}>🔒 Secure & Private</p>
+      <p style={{color:T.mut,fontSize:12,lineHeight:1.6}}>Used solely for monthly payout transfers via ABA Direct Entry.</p>
+    </div>
+    <Inp label="Bank Name" req val={d.bank} set={s("bank")} ph="e.g. Commonwealth Bank"/>
+    <Inp label="Account Name" req val={d.accountName} set={s("accountName")} ph="Must match your bank account exactly" hint="Use the exact name as it appears on your account."/>
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 14px"}}>
+      <Inp label="BSB" req val={d.bsb} set={s("bsb")} ph="062-000" hint="Format XXX-XXX" mono/>
+      <Inp label="Account Number" req val={d.accountNumber} set={s("accountNumber")} ph="12345678" mono/>
+    </div>
+  </div>);
+}
 
 // ── STEP: PLAN ────────────────────────────────────────────────────────────────
-function StepPlan({selectedPlan,onSelect}){
-  return(<div><StepHeader title="Choose Your Plan" subtitle="Select the plan that best fits your brand. Upgrade any time."/><div style={{display:"flex",flexDirection:"column",gap:14}}>{PLANS.map(plan=>{const active=selectedPlan===plan.id;return(<div key={plan.id} onClick={()=>onSelect(plan.id)} style={{border:`2px solid ${active?plan.col:T.border}`,borderRadius:16,padding:20,cursor:"pointer",background:active?"rgba(0,0,0,0.01)":T.surface,position:"relative"}}>{plan.badge&&<div style={{position:"absolute",top:-1,right:16,background:plan.col,color:"white",fontSize:9,fontWeight:800,padding:"3px 10px",borderRadius:"0 0 8px 8px",letterSpacing:"0.1em"}}>{plan.badge}</div>}<div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12}}><div style={{display:"flex",alignItems:"center",gap:10}}><div style={{width:20,height:20,borderRadius:"50%",border:`2.5px solid ${active?plan.col:T.border}`,display:"flex",alignItems:"center",justifyContent:"center"}}>{active&&<div style={{width:10,height:10,borderRadius:"50%",background:plan.col}}/>}</div><div><p style={{fontFamily:"Georgia,serif",fontSize:19,fontWeight:700,color:T.ink}}>{plan.name}</p><p style={{color:plan.col,fontSize:13,fontWeight:700}}>${plan.payout} payout per item · up to {plan.maxProducts===999?"unlimited":plan.maxProducts} products</p></div></div><div style={{textAlign:"right"}}><p style={{fontFamily:"Georgia,serif",fontSize:26,fontWeight:900,color:plan.col,lineHeight:1}}>${plan.price}</p><p style={{color:T.muted,fontSize:11}}>/month</p></div></div><div style={{display:"flex",flexDirection:"column",gap:5}}>{plan.features.map(f=><div key={f} style={{display:"flex",alignItems:"flex-start",gap:8}}><span style={{color:plan.col,fontSize:13,marginTop:1,flexShrink:0}}>✓</span><p style={{color:T.muted,fontSize:13}}>{f}</p></div>)}</div></div>);})}</div></div>);}
+function StepPlan({sel,onSel}){
+  return(<div>
+    <SHdr title="Choose Your Plan" sub="Select the plan that best fits your brand. Upgrade any time."/>
+    <div style={{display:"flex",flexDirection:"column",gap:14}}>
+      {PLANS.map(plan=>{
+        const active=sel===plan.id;
+        return(<div key={plan.id} onClick={()=>onSel(plan.id)}
+          style={{border:`2px solid ${active?plan.col:T.bdr}`,borderRadius:16,padding:20,cursor:"pointer",background:active?"rgba(0,0,0,0.01)":T.sur,position:"relative"}}>
+          {plan.badge&&<div style={{position:"absolute",top:-1,right:16,background:plan.col,color:"white",fontSize:9,fontWeight:800,padding:"3px 10px",borderRadius:"0 0 8px 8px",letterSpacing:"0.1em"}}>{plan.badge}</div>}
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12}}>
+            <div style={{display:"flex",alignItems:"center",gap:10}}>
+              <div style={{width:20,height:20,borderRadius:"50%",border:`2.5px solid ${active?plan.col:T.bdr}`,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                {active&&<div style={{width:10,height:10,borderRadius:"50%",background:plan.col}}/>}
+              </div>
+              <div>
+                <p style={{fontFamily:"Georgia,serif",fontSize:19,fontWeight:700,color:T.ink}}>{plan.name}</p>
+                <p style={{color:plan.col,fontSize:13,fontWeight:700}}>${plan.payout}/item · up to {plan.max===999?"unlimited":plan.max} products</p>
+              </div>
+            </div>
+            <div style={{textAlign:"right"}}>
+              <p style={{fontFamily:"Georgia,serif",fontSize:26,fontWeight:900,color:plan.col,lineHeight:1}}>${plan.price}</p>
+              <p style={{color:T.mut,fontSize:11}}>/month</p>
+            </div>
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:5}}>
+            {plan.features.map(f=><div key={f} style={{display:"flex",alignItems:"flex-start",gap:8}}><span style={{color:plan.col,fontSize:13,flexShrink:0}}>✓</span><p style={{color:T.mut,fontSize:13}}>{f}</p></div>)}
+          </div>
+        </div>);
+      })}
+    </div>
+  </div>);
+}
 
 // ── STEP: PAYMENT ─────────────────────────────────────────────────────────────
-function StepPayment({plan}){
-  const selectedPlan=PLANS.find(p=>p.id===plan);
+function StepPayment({planId}){
+  const plan=planOf(planId);
   useEffect(()=>{
-    window.showStripe&&window.showStripe();
-    return()=>window.hideStripe&&window.hideStripe();
+    const t=setTimeout(()=>window.moveCardTo&&window.moveCardTo("sc-slot"),150);
+    return()=>{clearTimeout(t);window.parkCard&&window.parkCard();};
   },[]);
-  return(
-    <div>
-      <StepHeader title="Payment Details" subtitle="Your subscription starts immediately. Cancel any time."/>
-      {selectedPlan&&(<div style={{background:T.faint,border:`1.5px solid ${T.border}`,borderRadius:14,padding:16,marginBottom:24}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}><div><p style={{color:T.ink,fontWeight:700,fontSize:15}}>{selectedPlan.name} Plan</p><p style={{color:T.muted,fontSize:12,marginTop:2}}>${selectedPlan.payout} per item · billed monthly</p></div><div style={{textAlign:"right"}}><p style={{color:selectedPlan.col,fontFamily:"Georgia,serif",fontSize:22,fontWeight:900}}>${selectedPlan.price}</p><p style={{color:T.muted,fontSize:10}}>/month</p></div></div></div>)}
-      <div style={{background:T.surface,border:`1.5px solid ${T.border}`,borderRadius:16,padding:20,marginBottom:16}}>
-        <p style={{fontFamily:"Georgia,serif",fontSize:15,fontWeight:700,color:T.ink,marginBottom:16}}>Card Details</p>
-        <div id="sc-container" style={{minHeight:46}}/>
-        <div style={{display:"flex",alignItems:"center",gap:8,marginTop:14,padding:"10px 12px",background:T.greenBg,border:`1px solid ${T.green}`,borderRadius:10}}>
-          <span style={{fontSize:16}}>🔒</span>
-          <p style={{color:T.green,fontSize:11,fontWeight:600}}>Secured by Stripe · 256-bit SSL</p>
+  return(<div>
+    <SHdr title="Payment Details" sub="Your subscription starts immediately. Cancel any time."/>
+    <div style={{background:T.fnt,border:`1.5px solid ${T.bdr}`,borderRadius:14,padding:16,marginBottom:24}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <div>
+          <p style={{color:T.ink,fontWeight:700,fontSize:15}}>{plan.name} Plan</p>
+          <p style={{color:T.mut,fontSize:12,marginTop:2}}>${plan.payout} per item · billed monthly</p>
+        </div>
+        <div style={{textAlign:"right"}}>
+          <p style={{fontFamily:"Georgia,serif",fontSize:22,fontWeight:900,color:plan.col}}>${plan.price}</p>
+          <p style={{color:T.mut,fontSize:10}}>/month</p>
         </div>
       </div>
-      {[["First charge",`$${selectedPlan?.price||"—"} today`],["Then billed","Monthly on same date"],["Cancel anytime","No lock-in contract"],["Payout rate",`$${selectedPlan?.payout||"—"} per item sold`]].map(([l,v])=>(
-        <div key={l} style={{display:"flex",justifyContent:"space-between",padding:"7px 0",borderBottom:`1px solid ${T.border}`}}><span style={{color:T.muted,fontSize:13}}>{l}</span><span style={{color:T.ink,fontSize:13,fontWeight:700}}>{v}</span></div>
-      ))}
     </div>
-  );
+    <div style={{background:T.sur,border:`1.5px solid ${T.bdr}`,borderRadius:16,padding:20,marginBottom:16}}>
+      <p style={{fontFamily:"Georgia,serif",fontSize:15,fontWeight:700,color:T.ink,marginBottom:14}}>Card Details</p>
+      <div id="sc-slot" style={{minHeight:46}}/>
+      <div style={{display:"flex",alignItems:"center",gap:8,marginTop:14,padding:"10px 12px",background:T.grnbg,border:`1px solid ${T.grn}`,borderRadius:10}}>
+        <span style={{fontSize:16}}>🔒</span>
+        <p style={{color:T.grn,fontSize:11,fontWeight:600}}>Secured by Stripe · 256-bit SSL · Cancel any time</p>
+      </div>
+    </div>
+    {[["First charge",`$${plan.price} today`],["Then billed","Monthly on same date"],["Cancel anytime","No lock-in"],["Payout rate",`$${plan.payout} per item sold`]].map(([l,v])=>(
+      <div key={l} style={{display:"flex",justifyContent:"space-between",padding:"7px 0",borderBottom:`1px solid ${T.bdr}`}}>
+        <span style={{color:T.mut,fontSize:13}}>{l}</span>
+        <span style={{color:T.ink,fontSize:13,fontWeight:700}}>{v}</span>
+      </div>
+    ))}
+  </div>);
+}
+
+// ── STEP: DESIGN ──────────────────────────────────────────────────────────────
+function StepDesign({planId,slots,setSlots,products,loadingProducts}){
+  const plan=planOf(planId);
+  const maxSlots=plan.max===999?10:plan.max;
+  const[num,setNum]=useState(Math.max(1,(slots||[]).filter(Boolean).length)||1);
+  return(<div>
+    <SHdr title="Product Design" sub={`Design up to ${plan.max===999?"unlimited":plan.max} products on your ${plan.name} plan. Click the garment to upload your logo.`}/>
+    {Array.from({length:num}).map((_,i)=>(
+      <DesignSlot key={i} num={i+1} total={num} planMax={maxSlots}
+        design={slots[i]} onChange={d=>{const s=[...slots];s[i]=d;setSlots(s);}}
+        products={products} loadingProducts={loadingProducts}/>
+    ))}
+    {num<maxSlots&&(
+      <button onClick={()=>setNum(n=>n+1)}
+        style={{width:"100%",padding:"12px",background:T.fnt,border:`2px dashed ${T.bdr}`,borderRadius:14,color:T.mut,fontSize:14,fontWeight:700,cursor:"pointer",marginBottom:8}}>
+        + Add Another Product ({num}/{maxSlots})
+      </button>
+    )}
+  </div>);
 }
 
 // ── STEP: REVIEW ──────────────────────────────────────────────────────────────
-function StepReview({brand,contact,bank,planId,productSlots}){
-  const plan=PLANS.find(p=>p.id===planId);
-  const Row=({l,v})=>v?<div style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:`1px solid ${T.faint}`}}><span style={{color:T.muted,fontSize:13}}>{l}</span><span style={{color:T.ink,fontSize:13,fontWeight:600,maxWidth:"60%",textAlign:"right"}}>{v}</span></div>:null;
-  const Sec=({title,children})=><div style={{marginBottom:20}}><p style={{fontFamily:"Georgia,serif",fontSize:15,fontWeight:700,color:T.ink,marginBottom:10,paddingBottom:8,borderBottom:`1.5px solid ${T.border}`}}>{title}</p>{children}</div>;
-  const filledSlots=productSlots.filter(s=>s?.productId);
-  return(
-    <div>
-      <StepHeader title="Review & Submit" subtitle="Check everything looks right before submitting."/>
-      <Sec title="Brand"><Row l="Brand" v={brand.brandName}/><Row l="Tagline" v={brand.tagline}/><Row l="Category" v={brand.category}/></Sec>
-      <Sec title="Contact"><Row l="Name" v={`${contact.firstName} ${contact.lastName}`}/><Row l="Email" v={contact.email}/><Row l="Phone" v={contact.phone}/><Row l="Address" v={[contact.street,contact.suburb,contact.state,contact.postcode].filter(Boolean).join(", ")}/></Sec>
-      <Sec title="Banking"><Row l="Bank" v={bank.bank}/><Row l="Account Name" v={bank.accountName}/><Row l="BSB" v={bank.bsb}/><Row l="Account No." v={bank.accountNumber?`••••${bank.accountNumber.slice(-4)}`:""}/></Sec>
-      <Sec title="Subscription">{plan&&<div style={{background:T.faint,borderRadius:12,padding:14}}><div style={{display:"flex",justifyContent:"space-between"}}><p style={{fontWeight:700,color:T.ink}}>{plan.name} Plan</p><p style={{color:plan.col,fontWeight:900,fontSize:18,fontFamily:"Georgia,serif"}}>${plan.price}/mo</p></div><p style={{color:T.muted,fontSize:12,marginTop:4}}>${plan.payout} payout per item · up to {plan.maxProducts===999?"unlimited":plan.maxProducts} products</p></div>}</Sec>
-      <Sec title="Products Designed">
-        {filledSlots.length===0?<p style={{color:T.muted,fontSize:13}}>No products configured — you can add designs after approval.</p>
-        :filledSlots.map((s,i)=>{
-          const cat=AS_CATALOGUE.find(p=>p.id===s.productId);
-          return(<div key={i} style={{background:T.faint,borderRadius:10,padding:12,marginBottom:8}}>
-            <p style={{fontWeight:700,color:T.ink,marginBottom:4}}>{cat?.name||s.productId}</p>
-            {s.colour&&<div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}><div style={{width:14,height:14,borderRadius:"50%",background:s.colour,border:`1px solid ${T.border}`}}/><span style={{color:T.muted,fontSize:12}}>{cat?.colours.find(c=>c.h===s.colour)?.n||s.colour}</span></div>}
-            {s.sizes?.length>0&&<p style={{color:T.muted,fontSize:12,marginBottom:3}}>Sizes: {s.sizes.join(", ")}</p>}
-            {s.frontLogo&&<p style={{color:T.muted,fontSize:12,marginBottom:3}}>Front: {s.frontLogo.name}</p>}
-            {s.backLogo&&<p style={{color:T.muted,fontSize:12,marginBottom:3}}>Back: {s.backLogo.name}</p>}
-            {s.notes&&<p style={{color:T.muted,fontSize:12,fontStyle:"italic"}}>"{s.notes}"</p>}
-            <p style={{color:T.accent,fontSize:11,fontWeight:700,marginTop:4}}>Print: DTF</p>
-          </div>);
-        })}
-      </Sec>
-      <div style={{background:T.greenBg,border:`1.5px solid ${T.green}`,borderRadius:14,padding:18,textAlign:"center"}}>
-        <p style={{fontSize:22,marginBottom:6}}>🎉</p>
-        <p style={{color:T.green,fontWeight:700,fontSize:14,marginBottom:4}}>Ready to submit</p>
-        <p style={{color:T.muted,fontSize:13,lineHeight:1.6}}>Your card will be charged ${plan?.price}/month. Our team reviews within 1–2 business days.</p>
-      </div>
+function StepReview({brand,contact,bank,planId,slots,products}){
+  const plan=planOf(planId);
+  const R=({l,v})=>v?<div style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:`1px solid ${T.fnt}`}}><span style={{color:T.mut,fontSize:13}}>{l}</span><span style={{color:T.ink,fontSize:13,fontWeight:600,maxWidth:"60%",textAlign:"right"}}>{v}</span></div>:null;
+  const S=({t,ch})=><div style={{marginBottom:20}}><p style={{fontFamily:"Georgia,serif",fontSize:15,fontWeight:700,color:T.ink,marginBottom:10,paddingBottom:8,borderBottom:`1.5px solid ${T.bdr}`}}>{t}</p>{ch}</div>;
+  return(<div>
+    <SHdr title="Review & Submit" sub="Check everything looks right before submitting."/>
+    <S t="Brand"><R l="Brand" v={brand.brandName}/><R l="Tagline" v={brand.tagline}/><R l="Category" v={brand.category}/></S>
+    <S t="Contact"><R l="Name" v={`${contact.firstName} ${contact.lastName}`}/><R l="Email" v={contact.email}/><R l="Phone" v={contact.phone}/><R l="Address" v={[contact.street,contact.suburb,contact.state,contact.postcode].filter(Boolean).join(", ")}/></S>
+    <S t="Banking"><R l="Bank" v={bank.bank}/><R l="Account Name" v={bank.accountName}/><R l="BSB" v={bank.bsb}/><R l="Account No." v={bank.accountNumber?`••••${bank.accountNumber.slice(-4)}`:""}/></S>
+    <S t="Subscription">{plan&&<div style={{background:T.fnt,borderRadius:12,padding:14}}><div style={{display:"flex",justifyContent:"space-between"}}><p style={{fontWeight:700,color:T.ink}}>{plan.name} Plan</p><p style={{color:plan.col,fontWeight:900,fontSize:18,fontFamily:"Georgia,serif"}}>${plan.price}/mo</p></div><p style={{color:T.mut,fontSize:12,marginTop:4}}>${plan.payout} per item · up to {plan.max===999?"unlimited":plan.max} products</p></div>}</S>
+    <S t="Products">
+      {(slots||[]).filter(s=>s?.productId).length===0?<p style={{color:T.mut,fontSize:13}}>No products configured — add designs after approval.</p>
+      :(slots||[]).filter(s=>s?.productId).map((s,i)=>{
+        const p=products.find(x=>x.id===s.productId);
+        return(<div key={i} style={{background:T.fnt,borderRadius:10,padding:12,marginBottom:8}}>
+          <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:6}}>
+            {p?.image&&<img src={p.image} alt="" style={{width:36,height:36,borderRadius:6,objectFit:"cover"}}/>}
+            <p style={{fontWeight:700,color:T.ink,fontSize:13}}>{p?.name||s.productId}</p>
+          </div>
+          {s.colours?.length>0&&<p style={{color:T.mut,fontSize:12,marginBottom:3}}>Colours: {s.colours.join(", ")}</p>}
+          {s.sizes?.length>0&&<p style={{color:T.mut,fontSize:12,marginBottom:3}}>Sizes: {s.sizes.join(", ")}</p>}
+          {s.frontLogo&&<p style={{color:T.mut,fontSize:12,marginBottom:3}}>Front logo: {s.frontLogo.name}</p>}
+          {s.backLogo&&<p style={{color:T.mut,fontSize:12,marginBottom:3}}>Back logo: {s.backLogo.name}</p>}
+          {s.notes&&<p style={{color:T.mut,fontSize:12,fontStyle:"italic"}}>"{s.notes}"</p>}
+          <p style={{color:T.acc,fontSize:11,fontWeight:700,marginTop:4}}>Print: DTF</p>
+        </div>);
+      })}
+    </S>
+    <div style={{background:T.grnbg,border:`1.5px solid ${T.grn}`,borderRadius:14,padding:18,textAlign:"center"}}>
+      <p style={{fontSize:22,marginBottom:6}}>🎉</p>
+      <p style={{color:T.grn,fontWeight:700,fontSize:14,marginBottom:4}}>Ready to submit</p>
+      <p style={{color:T.mut,fontSize:13,lineHeight:1.6}}>Your card will be charged ${plan?.price}/month. Our team reviews within 1–2 business days.</p>
     </div>
-  );
+  </div>);
 }
 
 // ── SUCCESS ───────────────────────────────────────────────────────────────────
 function Success({brandName,planId}){
-  const plan=PLANS.find(p=>p.id===planId);
-  return(<div style={{minHeight:"100vh",background:T.bg,display:"flex",alignItems:"center",justifyContent:"center",padding:24}}><div style={{maxWidth:440,width:"100%",textAlign:"center"}}><div style={{width:80,height:80,borderRadius:"50%",background:T.greenBg,border:`3px solid ${T.green}`,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 24px",fontSize:36}}>✓</div><h1 style={{fontFamily:"Georgia,serif",fontSize:30,fontWeight:700,color:T.ink,marginBottom:12}}>You're in!</h1><p style={{color:T.muted,fontSize:15,lineHeight:1.7,marginBottom:32}}>Welcome to Merch on Demand, <strong>{brandName}</strong>. You're on the <strong style={{color:plan?.col}}>{plan?.name} Plan</strong>. Our team will be in touch within 1–2 business days.</p><div style={{background:T.faint,border:`1.5px solid ${T.border}`,borderRadius:16,padding:20,textAlign:"left",marginBottom:24}}><p style={{fontWeight:700,color:T.ink,marginBottom:14}}>What happens next</p>{[["1","Review","We review your brand and design preferences"],["2","Setup","Your collection goes live on the store"],["3","Sell","Customers order your products"],["4","Payout",`$${plan?.payout||10} per item sold, paid monthly`]].map(([n,t,d])=>(<div key={n} style={{display:"flex",gap:12,marginBottom:14}}><div style={{width:28,height:28,borderRadius:"50%",background:T.ink,color:"white",display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,flexShrink:0}}>{n}</div><div><p style={{fontWeight:700,color:T.ink,fontSize:14}}>{t}</p><p style={{color:T.muted,fontSize:13}}>{d}</p></div></div>))}</div><p style={{color:T.muted,fontSize:13}}>Questions? <span style={{color:T.accent,fontWeight:600}}>hello@merchantondemand.com.au</span></p></div></div>);}
+  const plan=planOf(planId);
+  return(<div style={{minHeight:"100vh",background:T.bg,display:"flex",alignItems:"center",justifyContent:"center",padding:24}}>
+    <div style={{maxWidth:440,width:"100%",textAlign:"center"}}>
+      <div style={{width:80,height:80,borderRadius:"50%",background:T.grnbg,border:`3px solid ${T.grn}`,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 24px",fontSize:36}}>✓</div>
+      <h1 style={{fontFamily:"Georgia,serif",fontSize:30,fontWeight:700,color:T.ink,marginBottom:12}}>You're in!</h1>
+      <p style={{color:T.mut,fontSize:15,lineHeight:1.7,marginBottom:32}}>Welcome, <strong>{brandName}</strong>. You're on the <strong style={{color:plan?.col}}>{plan?.name} Plan</strong>. Our team will review your application within 1–2 business days.</p>
+      <div style={{background:T.fnt,border:`1.5px solid ${T.bdr}`,borderRadius:16,padding:20,textAlign:"left",marginBottom:24}}>
+        <p style={{fontWeight:700,color:T.ink,marginBottom:14}}>What happens next</p>
+        {[["1","Review","We review your brand and design preferences"],["2","Setup","Your collection goes live on the store"],["3","Sell","Customers order your products"],["4","Payout",`$${plan?.payout||10} per item, paid monthly`]].map(([n,t,d])=>(
+          <div key={n} style={{display:"flex",gap:12,marginBottom:14}}>
+            <div style={{width:28,height:28,borderRadius:"50%",background:T.ink,color:"white",display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,flexShrink:0}}>{n}</div>
+            <div><p style={{fontWeight:700,color:T.ink,fontSize:14}}>{t}</p><p style={{color:T.mut,fontSize:13}}>{d}</p></div>
+          </div>
+        ))}
+      </div>
+      <p style={{color:T.mut,fontSize:13}}>Questions? <span style={{color:T.acc,fontWeight:600}}>hello@merchantondemand.com.au</span></p>
+    </div>
+  </div>);
+}
 
-// ── ROOT APP ──────────────────────────────────────────────────────────────────
+// ── ROOT ──────────────────────────────────────────────────────────────────────
 function App(){
   const[step,setStep]=useState("brand");
-  const[submitted,setSubmitted]=useState(false);
-  const[submitting,setSubmitting]=useState(false);
-  const[submitErr,setSubmitErr]=useState("");
+  const[done,setDone]=useState(false);
+  const[busy,setBusy]=useState(false);
+  const[err,setErr]=useState("");
   const[cardReady,setCardReady]=useState(false);
+  const[products,setProducts]=useState([]);
+  const[loadingProducts,setLoadingProducts]=useState(true);
 
   const[brand,setBrand]=useState({brandName:"",tagline:"",category:""});
   const[contact,setContact]=useState({firstName:"",lastName:"",email:"",phone:"",street:"",suburb:"",state:"",postcode:"",country:"Australia"});
   const[bank,setBank]=useState({bank:"",accountName:"",bsb:"",accountNumber:""});
   const[planId,setPlanId]=useState("starter");
-  const[productSlots,setProductSlots]=useState([null]);
+  const[slots,setSlots]=useState([null]);
 
-  // Listen for Stripe card ready events
+  // Load Shopify products on mount
   useEffect(()=>{
-    const handler=e=>setCardReady(e.detail);
-    window.addEventListener("stripeready",handler);
-    return()=>window.removeEventListener("stripeready",handler);
+    fetchShopifyProducts()
+      .then(p=>{setProducts(p);setLoadingProducts(false);})
+      .catch(e=>{console.warn("Storefront API:",e);setLoadingProducts(false);});
   },[]);
 
-  const stepIdx=STEPS.findIndex(s=>s.id===step);
-  const goNext=()=>{if(stepIdx<STEPS.length-1)setStep(STEPS[stepIdx+1].id);};
-  const goBack=()=>{if(stepIdx>0)setStep(STEPS[stepIdx-1].id);};
+  // Listen for Stripe card ready
+  useEffect(()=>{
+    const h=e=>setCardReady(e.detail);
+    window.addEventListener("sc_ready",h);
+    return()=>window.removeEventListener("sc_ready",h);
+  },[]);
 
-  const canContinue=()=>{
+  const idx=STEPS.findIndex(s=>s.id===step);
+  const next=()=>{if(idx<STEPS.length-1)setStep(STEPS[idx+1].id);};
+  const back=()=>{if(idx>0)setStep(STEPS[idx-1].id);};
+
+  const ok=()=>{
     if(step==="brand")   return !!brand.brandName;
     if(step==="contact") return !!(contact.firstName&&contact.lastName&&contact.email&&contact.phone&&contact.street&&contact.suburb&&contact.state&&contact.postcode);
     if(step==="bank")    return !!(bank.bank&&bank.accountName&&bank.bsb&&bank.accountNumber);
@@ -543,69 +706,97 @@ function App(){
     return true;
   };
 
-  const handleSubmit=async()=>{
-    setSubmitting(true);setSubmitErr("");
+  const submit=async()=>{
+    setBusy(true);setErr("");
     try{
-      const plan=PLANS.find(p=>p.id===planId);
-      const stripe=window.getStripe();
-      const card=window.getCard();
-      if(!stripe||!card)throw new Error("Payment not ready. Please go back to the payment step and re-enter your card.");
+      const stripe=window.getS();
+      const card=window.getC();
+      if(!stripe||!card)throw new Error("Payment not ready — please go back to the Payment step and re-enter your card details.");
 
-      // Create payment method
-      const{paymentMethod,error}=await stripe.createPaymentMethod({type:"card",card,billing_details:{email:contact.email,name:`${contact.firstName} ${contact.lastName}`}});
-      if(error)throw new Error(error.message);
+      // 1. Create payment method
+      const{paymentMethod,error:pe}=await stripe.createPaymentMethod({
+        type:"card",card,
+        billing_details:{email:contact.email,name:`${contact.firstName} ${contact.lastName}`},
+      });
+      if(pe)throw new Error(pe.message);
 
-      // Create subscription via proxy
-      const res=await fetch(PROXY+"/stripe/subscribe",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email:contact.email,name:`${contact.firstName} ${contact.lastName}`,priceId:PRICE_IDS[planId],paymentMethodId:paymentMethod.id})});
-      const subData=await res.json();
-      if(!res.ok)throw new Error(subData.error||"Payment failed");
-      if(subData.clientSecret){const{error:ce}=await stripe.confirmCardPayment(subData.clientSecret);if(ce)throw new Error(ce.message);}
+      // 2. Create subscription via Railway proxy
+      const res=await fetch(PROXY+"/stripe/subscribe",{
+        method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({
+          email:contact.email,
+          name:`${contact.firstName} ${contact.lastName}`,
+          priceId:PRICE_IDS[planId],
+          paymentMethodId:paymentMethod.id,
+        }),
+      });
+      const sub=await res.json();
+      if(!res.ok)throw new Error(sub.error||"Payment failed");
+      if(sub.clientSecret){
+        const{error:ce}=await stripe.confirmCardPayment(sub.clientSecret);
+        if(ce)throw new Error(ce.message);
+      }
 
-      // Save to Supabase
+      // 3. Save vendor to Supabase
+      const plan=planOf(planId);
       const{data:vendor,error:ve}=await sb.from("vendors").insert({
-        name:`${contact.firstName} ${contact.lastName}`,email:contact.email.toLowerCase().trim(),phone:contact.phone,
-        brand_name:brand.brandName,store_name:brand.brandName,
+        name:`${contact.firstName} ${contact.lastName}`,
+        email:contact.email.toLowerCase().trim(),
+        phone:contact.phone,
+        brand_name:brand.brandName,
+        store_name:brand.brandName,
         address:[contact.street,contact.suburb,contact.state,contact.postcode,contact.country].filter(Boolean).join(", "),
-        bank:bank.bank,bsb:bank.bsb,account_number:bank.accountNumber,account_name:bank.accountName,
+        bank:bank.bank,bsb:bank.bsb,
+        account_number:bank.accountNumber,
+        account_name:bank.accountName,
         plan:planId,payout_rate:plan.payout,status:"pending",
-        notes:JSON.stringify({tagline:brand.tagline,category:brand.category,productSlots,stripeCustomerId:subData.customerId}),
+        notes:JSON.stringify({tagline:brand.tagline,category:brand.category,productSlots:slots,stripeCustomerId:sub.customerId}),
       }).select().single();
       if(ve)throw new Error(ve.message);
 
-      await sb.from("subscriptions").insert({vendor_id:vendor.id,plan:planId,price:plan.price,payout_rate:plan.payout,status:"active",stripe_subscription_id:subData.subscriptionId});
-      setSubmitted(true);
-    }catch(e){setSubmitErr(e.message);}
-    finally{setSubmitting(false);}
+      // 4. Save subscription
+      await sb.from("subscriptions").insert({
+        vendor_id:vendor.id,plan:planId,price:plan.price,
+        payout_rate:plan.payout,status:"active",
+        stripe_subscription_id:sub.subscriptionId,
+      });
+
+      setDone(true);
+    }catch(e){setErr(e.message);}
+    finally{setBusy(false);}
   };
 
-  if(submitted)return <Success brandName={brand.brandName} planId={planId}/>;
+  if(done)return <Success brandName={brand.brandName} planId={planId}/>;
 
-  return(
-    <div style={{background:T.bg,minHeight:"100vh"}}>
-      <div style={{background:T.surface,borderBottom:`1.5px solid ${T.border}`,padding:"14px 24px",display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:50}}>
-        <div><p style={{fontFamily:"Georgia,serif",fontWeight:900,fontSize:17,color:T.ink}}>Merch on Demand</p><p style={{color:T.muted,fontSize:10,fontWeight:500}}>Vendor Application</p></div>
-        <div style={{background:T.accentBg,border:`1.5px solid ${T.accentBorder}`,borderRadius:99,padding:"4px 14px"}}><span style={{color:T.accent,fontSize:11,fontWeight:700}}>Step {stepIdx+1} of {STEPS.length}</span></div>
+  return(<div style={{background:T.bg,minHeight:"100vh"}}>
+    <div style={{background:T.sur,borderBottom:`1.5px solid ${T.bdr}`,padding:"14px 24px",display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:50}}>
+      <div>
+        <p style={{fontFamily:"Georgia,serif",fontWeight:900,fontSize:17,color:T.ink}}>Merch on Demand</p>
+        <p style={{color:T.mut,fontSize:10,fontWeight:500}}>Vendor Application</p>
       </div>
-      <div style={{background:T.surface,borderBottom:`1.5px solid ${T.border}`,padding:"14px 24px 12px"}}><ProgressBar step={step}/></div>
-      <div style={{maxWidth:640,margin:"0 auto",padding:"28px 24px 80px"}}>
-        {step==="brand"  &&<StepBrand   data={brand}   setData={setBrand}/>}
-        {step==="contact"&&<StepContact data={contact} setData={setContact}/>}
-        {step==="bank"   &&<StepBank    data={bank}    setData={setBank}/>}
-        {step==="plan"   &&<StepPlan    selectedPlan={planId} onSelect={setPlanId}/>}
-        {step==="payment"&&<StepPayment plan={planId}/>}
-        {step==="design" &&<StepDesign  planId={planId} productSlots={productSlots} onChange={setProductSlots} shopifyProducts={[]} shopifyToken="" shopifyStore=""/>}
-        {step==="review" &&<StepReview  brand={brand} contact={contact} bank={bank} planId={planId} productSlots={productSlots}/>}
-        {submitErr&&<div style={{background:"#FEE2E2",border:"1px solid #FCA5A5",borderRadius:10,padding:12,marginTop:16}}><p style={{color:"#991B1B",fontSize:13}}>⚠ {submitErr}</p></div>}
-        <div style={{display:"flex",gap:12,marginTop:30}}>
-          {stepIdx>0&&<button onClick={goBack} style={{flex:1,padding:"13px",background:T.faint,border:`1.5px solid ${T.border}`,borderRadius:12,fontSize:14,fontWeight:700,color:T.muted,cursor:"pointer",fontFamily:"inherit"}}>← Back</button>}
-          {step==="review"
-            ?<button onClick={handleSubmit} disabled={submitting} style={{flex:2,padding:"13px",background:submitting?T.faint:T.green,border:"none",borderRadius:12,fontSize:14,fontWeight:700,color:submitting?T.muted:"white",cursor:submitting?"default":"pointer",fontFamily:"inherit"}}>{submitting?<Spin/>:"✓ Submit & Pay"}</button>
-            :<button onClick={goNext} disabled={!canContinue()} style={{flex:2,padding:"13px",background:!canContinue()?T.faint:T.ink,border:"none",borderRadius:12,fontSize:14,fontWeight:700,color:!canContinue()?T.muted:"white",cursor:!canContinue()?"default":"pointer",fontFamily:"inherit"}}>Continue →</button>
-          }
-        </div>
+      <div style={{background:T.acbg,border:`1.5px solid ${T.acbdr}`,borderRadius:99,padding:"4px 14px"}}>
+        <span style={{color:T.acc,fontSize:11,fontWeight:700}}>Step {idx+1} of {STEPS.length}</span>
       </div>
     </div>
-  );
+    <div style={{background:T.sur,borderBottom:`1.5px solid ${T.bdr}`,padding:"14px 24px 12px"}}><PBar step={step}/></div>
+    <div style={{maxWidth:640,margin:"0 auto",padding:"28px 24px 80px"}}>
+      {step==="brand"  &&<StepBrand   d={brand}   set={setBrand}/>}
+      {step==="contact"&&<StepContact d={contact} set={setContact}/>}
+      {step==="bank"   &&<StepBank    d={bank}    set={setBank}/>}
+      {step==="plan"   &&<StepPlan    sel={planId} onSel={setPlanId}/>}
+      {step==="payment"&&<StepPayment planId={planId}/>}
+      {step==="design" &&<StepDesign  planId={planId} slots={slots} setSlots={setSlots} products={products} loadingProducts={loadingProducts}/>}
+      {step==="review" &&<StepReview  brand={brand} contact={contact} bank={bank} planId={planId} slots={slots} products={products}/>}
+      {err&&<div style={{background:"#FEE2E2",border:"1px solid #FCA5A5",borderRadius:10,padding:12,marginTop:16}}><p style={{color:"#991B1B",fontSize:13}}>⚠ {err}</p></div>}
+      <div style={{display:"flex",gap:12,marginTop:30}}>
+        {idx>0&&<button onClick={back} style={{flex:1,padding:"13px",background:T.fnt,border:`1.5px solid ${T.bdr}`,borderRadius:12,fontSize:14,fontWeight:700,color:T.mut,cursor:"pointer"}}>← Back</button>}
+        {step==="review"
+          ?<button onClick={submit} disabled={busy} style={{flex:2,padding:"13px",background:busy?T.fnt:T.grn,border:"none",borderRadius:12,fontSize:14,fontWeight:700,color:busy?T.mut:"white",cursor:busy?"default":"pointer"}}>{busy?<Spin/>:"✓ Submit & Pay"}</button>
+          :<button onClick={next} disabled={!ok()} style={{flex:2,padding:"13px",background:!ok()?T.fnt:T.ink,border:"none",borderRadius:12,fontSize:14,fontWeight:700,color:!ok()?T.mut:"white",cursor:!ok()?"default":"pointer"}}>Continue →</button>
+        }
+      </div>
+    </div>
+  </div>);
 }
 
 ReactDOM.createRoot(document.getElementById("root")).render(<App/>);

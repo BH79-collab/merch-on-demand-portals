@@ -90,40 +90,69 @@ const T={bg:"#FAF8F4",sur:"#FFFFFF",bdr:"#E8E4DC",ink:"#1A1714",mut:"#8C8580",fn
 
 const {useState,useRef,useEffect,useCallback}=React;
 
-// ── Fetch products via Railway proxy → Shopify Admin API ─────────────────────
+// ── Fetch products via Shopify Storefront API (public, no proxy needed) ────────
 async function fetchShopifyProducts(){
-  const SHOP_TOKEN = "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";
-  const SHOP_STORE = "shop-merch-on-demand.myshopify.com";
-  const url = `${PROXY}/shopify?store=${encodeURIComponent(SHOP_STORE)}&path=products.json?limit=250&fields=id,title,product_type,images,variants,options`;
-  const res = await fetch(url, {
-    headers: { "x-shopify-token": SHOP_TOKEN }
+  const SF_STORE = "shop-merch-on-demand.myshopify.com";
+  const SF_TOKEN = "476072d25cd5d3ad49aa12975d4017f2";
+  const SF_URL   = `https://${SF_STORE}/api/2024-01/graphql.json`;
+
+  const query = `{
+    products(first: 50) {
+      edges {
+        node {
+          id title handle productType
+          images(first: 1) { edges { node { url } } }
+          options { name values }
+          variants(first: 100) {
+            edges {
+              node {
+                id title
+                selectedOptions { name value }
+              }
+            }
+          }
+        }
+      }
+    }
+  }`;
+
+  const res = await fetch(SF_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Shopify-Storefront-Access-Token": SF_TOKEN,
+    },
+    body: JSON.stringify({ query }),
   });
-  if(!res.ok) throw new Error("Products fetch failed: "+res.status);
-  const { products } = await res.json();
-  return (products||[]).map(p=>{
-    // Extract unique colours and sizes from variants
-    const colourMap={};
-    const sizeSet=new Set();
-    (p.variants||[]).forEach(v=>{
-      // variant title is usually "Black / XL" or "Black"
-      const parts = v.title.split(" / ");
-      if(parts.length>=2){ colourMap[parts[0]]=parts[0]; sizeSet.add(parts[1]); }
-      else if(parts.length===1 && !/^\d/.test(parts[0])){ colourMap[parts[0]]=parts[0]; }
+
+  if(!res.ok) throw new Error("Storefront API error: " + res.status);
+  const json = await res.json();
+  if(json.errors) throw new Error(json.errors[0]?.message || "GraphQL error");
+
+  const edges = json.data?.products?.edges || [];
+  return edges.map(({node: p}) => {
+    const variants = p.variants.edges.map(e => e.node);
+    const colourMap = {};
+    const sizeSet = new Set();
+    variants.forEach(v => {
+      v.selectedOptions.forEach(opt => {
+        if (/colou?r/i.test(opt.name)) colourMap[opt.value] = opt.value;
+        if (/size/i.test(opt.name))    sizeSet.add(opt.value);
+      });
     });
-    // Also check options
-    (p.options||[]).forEach(opt=>{
-      if(/colou?r/i.test(opt.name)) opt.values.forEach(v=>colourMap[v]=v);
-      if(/size/i.test(opt.name))    opt.values.forEach(v=>sizeSet.add(v));
+    // Also use options directly
+    (p.options||[]).forEach(opt => {
+      if (/colou?r/i.test(opt.name)) opt.values.forEach(v => colourMap[v] = v);
+      if (/size/i.test(opt.name))    opt.values.forEach(v => sizeSet.add(v));
     });
-    const colours=Object.keys(colourMap);
-    const sizes=[...sizeSet];
-    const img=p.images?.[0]?.src||null;
-    return{
-      id:p.id.toString(),
-      handle:p.handle,
-      name:p.title,
-      category:p.product_type||"",
-      image:img,colours,sizes,
+    return {
+      id: p.id,
+      handle: p.handle,
+      name: p.title,
+      category: p.productType || "",
+      image: p.images.edges[0]?.node?.url || null,
+      colours: Object.keys(colourMap),
+      sizes: [...sizeSet],
     };
   });
 }
@@ -573,12 +602,14 @@ function StepPayment({planId}){
 }
 
 // ── STEP: DESIGN ──────────────────────────────────────────────────────────────
-function StepDesign({planId,slots,setSlots,products,loadingProducts}){
+function StepDesign({planId,slots,setSlots,products,loadingProducts,productErr}){
   const plan=planOf(planId);
   const maxSlots=plan.max===999?10:plan.max;
   const[num,setNum]=useState(Math.max(1,(slots||[]).filter(Boolean).length)||1);
   return(<div>
     <SHdr title="Product Design" sub={`Design up to ${plan.max===999?"unlimited":plan.max} products on your ${plan.name} plan. Click the garment to upload your logo.`}/>
+    {loadingProducts&&<div style={{textAlign:"center",padding:"20px 0",color:T.mut,fontSize:13}}><Spin/> Loading products from Shopify…</div>}
+    {productErr&&<div style={{background:"#FEF3C7",border:"1px solid #F59E0B",borderRadius:10,padding:12,marginBottom:16,fontSize:12,color:"#92400E"}}>⚠ Could not load products: {productErr}<br/>Open browser console (F12) for details.</div>}
     {Array.from({length:num}).map((_,i)=>(
       <DesignSlot key={i} num={i+1} total={num} planMax={maxSlots}
         design={slots[i]} onChange={d=>{const s=[...slots];s[i]=d;setSlots(s);}}
@@ -669,10 +700,19 @@ function App(){
   const[slots,setSlots]=useState([null]);
 
   // Load Shopify products on mount
+  const[productErr,setProductErr]=useState("");
   useEffect(()=>{
     fetchShopifyProducts()
-      .then(p=>{setProducts(p);setLoadingProducts(false);})
-      .catch(e=>{console.warn("Storefront API:",e);setLoadingProducts(false);});
+      .then(p=>{
+        console.log("Products loaded:",p.length);
+        setProducts(p);
+        setLoadingProducts(false);
+      })
+      .catch(e=>{
+        console.error("Product fetch error:",e);
+        setProductErr(e.message);
+        setLoadingProducts(false);
+      });
   },[]);
 
   // Listen for Stripe card ready
@@ -774,7 +814,7 @@ function App(){
       {step==="bank"   &&<StepBank    d={bank}    set={setBank}/>}
       {step==="plan"   &&<StepPlan    sel={planId} onSel={setPlanId}/>}
       {step==="payment"&&<StepPayment planId={planId}/>}
-      {step==="design" &&<StepDesign  planId={planId} slots={slots} setSlots={setSlots} products={products} loadingProducts={loadingProducts}/>}
+      {step==="design" &&<StepDesign  planId={planId} slots={slots} setSlots={setSlots} products={products} loadingProducts={loadingProducts} productErr={productErr}/>}
       {step==="review" &&<StepReview  brand={brand} contact={contact} bank={bank} planId={planId} slots={slots} products={products}/>}
       {err&&<div style={{background:"#FEE2E2",border:"1px solid #FCA5A5",borderRadius:10,padding:12,marginTop:16}}><p style={{color:"#991B1B",fontSize:13}}>⚠ {err}</p></div>}
       <div style={{display:"flex",gap:12,marginTop:30}}>

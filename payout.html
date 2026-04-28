@@ -325,20 +325,27 @@ function App(){
     try{
       if(store==="demo"){await new Promise(r=>setTimeout(r,800));setOrders(DEMO_ORDERS);setCollections(DEMO_COLLECTIONS);setSyncMsg("Demo data loaded ✓");}
       else{
-        setSyncMsg("Fetching collections…");
-        const[ca,sa]=await Promise.all([sfetch(proxy,store,token,"custom_collections.json?limit=250"),sfetch(proxy,store,token,"smart_collections.json?limit=250")]);
-        const cols=[...(ca.custom_collections||[]),...(sa.smart_collections||[])];
-        setCollections(cols.map(c=>({id:c.id.toString(),title:c.title})));
-        setSyncMsg(`${cols.length} collections — products…`);
-        const colMap={};
-        for(const col of cols){const pd=await sfetch(proxy,store,token,`products.json?collection_id=${col.id}&limit=250&fields=id`);colMap[col.id.toString()]=new Set((pd.products||[]).map(p=>p.id.toString()));}
-        setSyncMsg("Fetching orders…");
-        const now=new Date();const fd=new Date(now.getFullYear(),now.getMonth(),1).toISOString().split("T")[0];const ld=new Date(now.getFullYear(),now.getMonth()+1,0).toISOString().split("T")[0];
-        const od=await sfetch(proxy,store,token,`orders.json?status=any&financial_status=paid&created_at_min=${fd}T00:00:00Z&created_at_max=${ld}T23:59:59Z&limit=250&fields=id,created_at,line_items`);
-        const raw=od.orders||[];
+        setSyncMsg("Loading orders from Supabase…");
+        const res=await fetch(proxy+"/supabase/orders");
+        if(!res.ok)throw new Error("Could not load orders — "+res.status);
+        const rows=await res.json();
         const processed=[];
-        for(const order of raw){for(const line of order.line_items||[]){const pid=line.product_id?.toString();let colId=null;for(const[cid,pset]of Object.entries(colMap)){if(pset.has(pid)){colId=cid;break;}}processed.push({id:`${order.id}-${line.id}`,product:line.title,collectionId:colId,qty:line.quantity||1,revenue:parseFloat(line.price)*(line.quantity||1),date:order.created_at?.split("T")[0]||""});}}
-        setOrders(processed);setSyncMsg(`✓ ${raw.length} orders synced`);
+        for(const order of rows){
+          const items=order.line_items||[];
+          for(const line of items){
+            processed.push({
+              id:order.shopify_order_id+"-"+line.product_id,
+              product:line.title||"Unknown product",
+              collectionId:null,
+              qty:line.quantity||1,
+              revenue:parseFloat(line.price||0)*(line.quantity||1),
+              date:order.created_at?order.created_at.split("T")[0]:"",
+              vendor:line.vendor||"",
+            });
+          }
+        }
+        setOrders(processed);
+        setSyncMsg("✓ "+rows.length+" orders loaded");
       }
     }catch(e){setSyncMsg(`❌ ${e.message}`);}
     finally{setSyncing(false);setTimeout(()=>setSyncMsg(""),10000);}

@@ -23,31 +23,24 @@ select option{background:white;color:#1A1714}
 <body>
 <!-- Stripe card lives permanently outside React -->
 <style>
-#sc-mount{padding:12px 14px;background:#F0EDE8;border:1.5px solid #E8E4DC;border-radius:10px;min-height:44px}
+#sc-fixed{position:fixed;bottom:80px;left:50%;transform:translateX(-50%);width:min(560px,92vw);padding:12px 14px;background:#F0EDE8;border:1.5px solid #E8E4DC;border-radius:10px;min-height:44px;z-index:9999;display:none;box-shadow:0 4px 20px rgba(0,0,0,0.15)}
+#sc-fixed.on{display:block}
 </style>
-<div id="sc-mount"></div>
+<div id="sc-fixed"><p id="sc-label" style="font-size:11px;font-weight:700;color:#8C8580;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:8px">Card Details</p><div id="sc-el"></div><p style="font-size:11px;color:#2A7A4B;margin-top:10px">🔒 Secured by Stripe · 256-bit SSL</p></div>
 <div id="root"></div>
 <script>
-var _stripe=Stripe('pk_live_51O2OzhLgoqGtM7YGmzxSIZM6XNNfgJGpfIQYYcoT7JnFneionzk0gFfn0S8AiqvJZDhGI0zj2qQ28FvPF2Z0fFs7006Y2B3SXR');
-var _card=null,_cardReady=false;
-window.mountCard=function(){
-  if(_card){try{_card.destroy();}catch(e){}  _card=null;_cardReady=false;}
-  var el=document.getElementById('sc-mount');
-  if(!el)return;
-  el.innerHTML='';
-  var elements=_stripe.elements({locale:'en',appearance:{theme:'none'}});
-  var c=elements.create('card',{
-    hidePostalCode:true,
-    disableLink:true,
-    style:{base:{color:'#1A1714',fontFamily:'Segoe UI,sans-serif',fontSize:'15px','::placeholder':{color:'#8C8580'}},invalid:{color:'#D4521A'}}
-  });
-  c.mount('#sc-mount');
-  c.on('change',function(e){_cardReady=!e.empty&&!e.error;window.dispatchEvent(new CustomEvent('sc_ready',{detail:_cardReady}));});
-  _card=c;
-  console.log('Stripe card mounted fresh');
-};
-window.getS=function(){return _stripe;};
-window.getC=function(){return _card;};
+var _s=Stripe('pk_live_51O2OzhLgoqGtM7YGmzxSIZM6XNNfgJGpfIQYYcoT7JnFneionzk0gFfn0S8AiqvJZDhGI0zj2qQ28FvPF2Z0fFs7006Y2B3SXR');
+var _c=null,_r=false;
+window.addEventListener('load',function(){
+  _c=_s.elements().create('card',{hidePostalCode:true,style:{base:{color:'#1A1714',fontFamily:'Segoe UI,sans-serif',fontSize:'15px','::placeholder':{color:'#8C8580'}},invalid:{color:'#D4521A'}}});
+  _c.mount('#sc-el');
+  _c.on('change',function(e){_r=!e.empty&&!e.error;window.dispatchEvent(new CustomEvent('sc_ready',{detail:_r}));});
+  console.log('Stripe card mounted — never moves');
+});
+window.showCard=function(){document.getElementById('sc-fixed').classList.add('on');};
+window.hideCard=function(){document.getElementById('sc-fixed').classList.remove('on');};
+window.getS=function(){return _s;};
+window.getC=function(){return _c;};
 </script>
 
 <script type="text/babel">
@@ -89,25 +82,19 @@ const T={bg:"#FAF8F4",sur:"#FFFFFF",bdr:"#E8E4DC",ink:"#1A1714",mut:"#8C8580",fn
 
 const {useState,useRef,useEffect,useCallback}=React;
 
-// ── Fetch products via Shopify Storefront GraphQL API ────────────────────────
+// ── Fetch products from Shopify Storefront API ────────────────────────────────
 async function fetchShopifyProducts(){
   const SF_STORE="shop-merch-on-demand.myshopify.com";
   const SF_TOKEN="476072d25cd5d3ad49aa12975d4017f2";
   const SF_URL="https://"+SF_STORE+"/api/2024-01/graphql.json";
   const query="{products(first:50){edges{node{id title handle productType images(first:1){edges{node{url}}} options{name values} variants(first:100){edges{node{id title selectedOptions{name value}}}}}}}}";
-  const res=await fetch(SF_URL,{
-    method:"POST",
-    headers:{"Content-Type":"application/json","X-Shopify-Storefront-Access-Token":SF_TOKEN},
-    body:JSON.stringify({query}),
-  });
+  const res=await fetch(SF_URL,{method:"POST",headers:{"Content-Type":"application/json","X-Shopify-Storefront-Access-Token":SF_TOKEN},body:JSON.stringify({query})});
   if(!res.ok)throw new Error("Storefront API error: "+res.status);
   const json=await res.json();
   if(json.errors)throw new Error(json.errors[0]?.message||"GraphQL error");
-  const edges=json.data?.products?.edges||[];
-  return edges.map(({node:p})=>{
-    const variants=p.variants.edges.map(e=>e.node);
+  return (json.data?.products?.edges||[]).map(({node:p})=>{
     const colourMap={};const sizeSet=new Set();
-    variants.forEach(v=>{v.selectedOptions.forEach(opt=>{
+    p.variants.edges.map(e=>e.node).forEach(v=>{v.selectedOptions.forEach(opt=>{
       if(/colou?r/i.test(opt.name))colourMap[opt.value]=opt.value;
       if(/size/i.test(opt.name))sizeSet.add(opt.value);
     });});
@@ -116,8 +103,7 @@ async function fetchShopifyProducts(){
       if(/size/i.test(opt.name))opt.values.forEach(v=>sizeSet.add(v));
     });
     return{id:p.id,handle:p.handle,name:p.title,category:p.productType||"",
-      image:p.images.edges[0]?.node?.url||null,
-      colours:Object.keys(colourMap),sizes:[...sizeSet]};
+      image:p.images.edges[0]?.node?.url||null,colours:Object.keys(colourMap),sizes:[...sizeSet]};
   });
 }
 
@@ -527,49 +513,6 @@ function StepPlan({sel,onSel}){
   </div>);
 }
 
-// ── STEP: PAYMENT ─────────────────────────────────────────────────────────────
-function StepPayment({planId}){
-  const plan=planOf(planId);
-  useEffect(()=>{
-    const t=setTimeout(()=>{
-      var mount=document.getElementById('sc-mount');
-      var slot=document.getElementById('sc-slot');
-      if(mount&&slot){slot.innerHTML='';slot.appendChild(mount);}
-      window.mountCard&&window.mountCard();
-    },150);
-    return()=>clearTimeout(t);
-  },[]);
-  return(<div>
-    <SHdr title="Payment Details" sub="Your subscription starts immediately. Cancel any time."/>
-    <div style={{background:T.fnt,border:`1.5px solid ${T.bdr}`,borderRadius:14,padding:16,marginBottom:24}}>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-        <div>
-          <p style={{color:T.ink,fontWeight:700,fontSize:15}}>{plan.name} Plan</p>
-          <p style={{color:T.mut,fontSize:12,marginTop:2}}>${plan.payout} per item · billed monthly</p>
-        </div>
-        <div style={{textAlign:"right"}}>
-          <p style={{fontFamily:"Georgia,serif",fontSize:22,fontWeight:900,color:plan.col}}>${plan.price}</p>
-          <p style={{color:T.mut,fontSize:10}}>/month</p>
-        </div>
-      </div>
-    </div>
-    <div style={{background:T.sur,border:`1.5px solid ${T.bdr}`,borderRadius:16,padding:20,marginBottom:16}}>
-      <p style={{fontFamily:"Georgia,serif",fontSize:15,fontWeight:700,color:T.ink,marginBottom:14}}>Card Details</p>
-      <div id="sc-slot" style={{minHeight:46}}/>
-      <div style={{display:"flex",alignItems:"center",gap:8,marginTop:14,padding:"10px 12px",background:T.grnbg,border:`1px solid ${T.grn}`,borderRadius:10}}>
-        <span style={{fontSize:16}}>🔒</span>
-        <p style={{color:T.grn,fontSize:11,fontWeight:600}}>Secured by Stripe · 256-bit SSL · Cancel any time</p>
-      </div>
-    </div>
-    {[["First charge",`$${plan.price} today`],["Then billed","Monthly on same date"],["Cancel anytime","No lock-in"],["Payout rate",`$${plan.payout} per item sold`]].map(([l,v])=>(
-      <div key={l} style={{display:"flex",justifyContent:"space-between",padding:"7px 0",borderBottom:`1px solid ${T.bdr}`}}>
-        <span style={{color:T.mut,fontSize:13}}>{l}</span>
-        <span style={{color:T.ink,fontSize:13,fontWeight:700}}>{v}</span>
-      </div>
-    ))}
-  </div>);
-}
-
 // ── STEP: DESIGN ──────────────────────────────────────────────────────────────
 function StepDesign({planId,slots,setSlots,products,loadingProducts}){
   const plan=planOf(planId);
@@ -592,6 +535,236 @@ function StepDesign({planId,slots,setSlots,products,loadingProducts}){
 }
 
 // ── STEP: REVIEW ──────────────────────────────────────────────────────────────
+function StepReview({brand,contact,bank,planId,slots,products}){
+  const plan=planOf(planId);
+  const R=({l,v})=>v?<div style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:`1px solid ${T.fnt}`}}><span style={{color:T.mut,fontSize:13}}>{l}</span><span style={{color:T.ink,fontSize:13,fontWeight:600,maxWidth:"60%",textAlign:"right"}}>{v}</span></div>:null;
+  const S=({t,ch})=><div style={{marginBottom:20}}><p style={{fontFamily:"Georgia,serif",fontSize:15,fontWeight:700,color:T.ink,marginBottom:10,paddingBottom:8,borderBottom:`1.5px solid ${T.bdr}`}}>{t}</p>{ch}</div>;
+  return(<div>
+    <SHdr title="Review & Submit" sub="Check everything looks right before submitting."/>
+    <S t="Brand"><R l="Brand" v={brand.brandName}/><R l="Tagline" v={brand.tagline}/><R l="Category" v={brand.category}/></S>
+    <S t="Contact"><R l="Name" v={`${contact.firstName} ${contact.lastName}`}/><R l="Email" v={contact.email}/><R l="Phone" v={contact.phone}/><R l="Address" v={[contact.street,contact.suburb,contact.state,contact.postcode].filter(Boolean).join(", ")}/></S>
+    <S t="Banking"><R l="Bank" v={bank.bank}/><R l="Account Name" v={bank.accountName}/><R l="BSB" v={bank.bsb}/><R l="Account No." v={bank.accountNumber?`••••${bank.accountNumber.slice(-4)}`:""}/></S>
+    <S t="Subscription">{plan&&<div style={{background:T.fnt,borderRadius:12,padding:14}}><div style={{display:"flex",justifyContent:"space-between"}}><p style={{fontWeight:700,color:T.ink}}>{plan.name} Plan</p><p style={{color:plan.col,fontWeight:900,fontSize:18,fontFamily:"Georgia,serif"}}>${plan.price}/mo</p></div><p style={{color:T.mut,fontSize:12,marginTop:4}}>${plan.payout} per item · up to {plan.max===999?"unlimited":plan.max} products</p></div>}</S>
+    <S t="Products">
+      {(slots||[]).filter(s=>s?.productId).length===0?<p style={{color:T.mut,fontSize:13}}>No products configured — add designs after approval.</p>
+      :(slots||[]).filter(s=>s?.productId).map((s,i)=>{
+        const p=products.find(x=>x.id===s.productId);
+        return(<div key={i} style={{background:T.fnt,borderRadius:10,padding:12,marginBottom:8}}>
+          <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:6}}>
+            {p?.image&&<img src={p.image} alt="" style={{width:36,height:36,borderRadius:6,objectFit:"cover"}}/>}
+            <p style={{fontWeight:700,color:T.ink,fontSize:13}}>{p?.name||s.productId}</p>
+          </div>
+          {s.colours?.length>0&&<p style={{color:T.mut,fontSize:12,marginBottom:3}}>Colours: {s.colours.join(", ")}</p>}
+          {s.sizes?.length>0&&<p style={{color:T.mut,fontSize:12,marginBottom:3}}>Sizes: {s.sizes.join(", ")}</p>}
+          {s.frontLogo&&<p style={{color:T.mut,fontSize:12,marginBottom:3}}>Front logo: {s.frontLogo.name}</p>}
+          {s.backLogo&&<p style={{color:T.mut,fontSize:12,marginBottom:3}}>Back logo: {s.backLogo.name}</p>}
+          {s.notes&&<p style={{color:T.mut,fontSize:12,fontStyle:"italic"}}>"{s.notes}"</p>}
+          <p style={{color:T.acc,fontSize:11,fontWeight:700,marginTop:4}}>Print: DTF</p>
+        </div>);
+      })}
+    </S>
+    <div style={{background:T.grnbg,border:`1.5px solid ${T.grn}`,borderRadius:14,padding:18,textAlign:"center"}}>
+      <p style={{fontSize:22,marginBottom:6}}>🎉</p>
+      <p style={{color:T.grn,fontWeight:700,fontSize:14,marginBottom:4}}>Ready to submit</p>
+      <p style={{color:T.mut,fontSize:13,lineHeight:1.6}}>Your card will be charged ${plan?.price}/month. Our team reviews within 1–2 business days.</p>
+    </div>
+  </div>);
+}
+
+// ── SUCCESS ───────────────────────────────────────────────────────────────────
+function Success({brandName,planId}){
+  const plan=planOf(planId);
+  return(<div style={{minHeight:"100vh",background:T.bg,display:"flex",alignItems:"center",justifyContent:"center",padding:24}}>
+    <div style={{maxWidth:440,width:"100%",textAlign:"center"}}>
+      <div style={{width:80,height:80,borderRadius:"50%",background:T.grnbg,border:`3px solid ${T.grn}`,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 24px",fontSize:36}}>✓</div>
+      <h1 style={{fontFamily:"Georgia,serif",fontSize:30,fontWeight:700,color:T.ink,marginBottom:12}}>You're in!</h1>
+      <p style={{color:T.mut,fontSize:15,lineHeight:1.7,marginBottom:32}}>Welcome, <strong>{brandName}</strong>. You're on the <strong style={{color:plan?.col}}>{plan?.name} Plan</strong>. Our team will review your application within 1–2 business days.</p>
+      <div style={{background:T.fnt,border:`1.5px solid ${T.bdr}`,borderRadius:16,padding:20,textAlign:"left",marginBottom:24}}>
+        <p style={{fontWeight:700,color:T.ink,marginBottom:14}}>What happens next</p>
+        {[["1","Review","We review your brand and design preferences"],["2","Setup","Your collection goes live on the store"],["3","Sell","Customers order your products"],["4","Payout",`$${plan?.payout||10} per item, paid monthly`]].map(([n,t,d])=>(
+          <div key={n} style={{display:"flex",gap:12,marginBottom:14}}>
+            <div style={{width:28,height:28,borderRadius:"50%",background:T.ink,color:"white",display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,flexShrink:0}}>{n}</div>
+            <div><p style={{fontWeight:700,color:T.ink,fontSize:14}}>{t}</p><p style={{color:T.mut,fontSize:13}}>{d}</p></div>
+          </div>
+        ))}
+      </div>
+      <p style={{color:T.mut,fontSize:13}}>Questions? <span style={{color:T.acc,fontWeight:600}}>hello@merchantondemand.com.au</span></p>
+    </div>
+  </div>);
+}
+
+// ── ROOT ──────────────────────────────────────────────────────────────────────
+function App(){
+  const[step,setStep]=useState("brand");
+  const[done,setDone]=useState(false);
+  const[busy,setBusy]=useState(false);
+  const[err,setErr]=useState("");
+  const[cardReady,setCardReady]=useState(false);
+  const[products,setProducts]=useState([]);
+  const[loadingProducts,setLoadingProducts]=useState(true);
+
+  const[brand,setBrand]=useState({brandName:"",tagline:"",category:""});
+  const[contact,setContact]=useState({firstName:"",lastName:"",email:"",phone:"",street:"",suburb:"",state:"",postcode:"",country:"Australia"});
+  const[bank,setBank]=useState({bank:"",accountName:"",bsb:"",accountNumber:""});
+  const[planId,setPlanId]=useState("starter");
+  const[slots,setSlots]=useState([null]);
+
+  // Load Shopify products on mount
+  useEffect(()=>{
+    fetchShopifyProducts()
+      .then(p=>{setProducts(p);setLoadingProducts(false);})
+      .catch(e=>{console.warn("Storefront API:",e);setLoadingProducts(false);});
+  },[]);
+
+  // Listen for Stripe card ready
+  useEffect(()=>{
+    const h=e=>setCardReady(e.detail);
+    window.addEventListener("sc_ready",h);
+    return()=>window.removeEventListener("sc_ready",h);
+  },[]);
+
+  const idx=STEPS.findIndex(s=>s.id===step);
+  const next=()=>{if(idx<STEPS.length-1)setStep(STEPS[idx+1].id);};
+  const back=()=>{if(idx>0)setStep(STEPS[idx-1].id);};
+
+  const ok=()=>{
+    if(step==="brand")   return !!brand.brandName;
+    if(step==="contact") return !!(contact.firstName&&contact.lastName&&contact.email&&contact.phone&&contact.street&&contact.suburb&&contact.state&&contact.postcode);
+    if(step==="bank")    return !!(bank.bank&&bank.accountName&&bank.bsb&&bank.accountNumber);
+    if(step==="plan")    return !!planId;
+    if(step==="payment") return cardReady;
+    return true;
+  };
+
+  const submit=async()=>{
+    setBusy(true);setErr("");
+    try{
+      const stripe=window.getS();
+      const card=window.getC();
+      if(!stripe||!card)throw new Error("Payment not ready — please go back to the Payment step and re-enter your card details.");
+
+      // 1. Create payment method
+      const{paymentMethod,error:pe}=await stripe.createPaymentMethod({
+        type:"card",card,
+        billing_details:{email:contact.email,name:`${contact.firstName} ${contact.lastName}`},
+      });
+      if(pe)throw new Error(pe.message);
+
+      // 2. Create subscription via Railway proxy
+      const res=await fetch(PROXY+"/stripe/subscribe",{
+        method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({
+          email:contact.email,
+          name:`${contact.firstName} ${contact.lastName}`,
+          priceId:PRICE_IDS[planId],
+          paymentMethodId:paymentMethod.id,
+        }),
+      });
+      const sub=await res.json();
+      if(!res.ok)throw new Error(sub.error||"Payment failed");
+      if(sub.clientSecret){
+        const{error:ce}=await stripe.confirmCardPayment(sub.clientSecret);
+        if(ce)throw new Error(ce.message);
+      }
+
+      // 3. Save vendor to Supabase
+      const plan=planOf(planId);
+      const{data:vendor,error:ve}=await sb.from("vendors").insert({
+        name:`${contact.firstName} ${contact.lastName}`,
+        email:contact.email.toLowerCase().trim(),
+        phone:contact.phone,
+        brand_name:brand.brandName,
+        store_name:brand.brandName,
+        address:[contact.street,contact.suburb,contact.state,contact.postcode,contact.country].filter(Boolean).join(", "),
+        bank:bank.bank,bsb:bank.bsb,
+        account_number:bank.accountNumber,
+        account_name:bank.accountName,
+        plan:planId,payout_rate:plan.payout,status:"pending",
+        notes:JSON.stringify({tagline:brand.tagline,category:brand.category,productSlots:slots,stripeCustomerId:sub.customerId}),
+      }).select().single();
+      if(ve)throw new Error(ve.message);
+
+      // 4. Save subscription
+      await sb.from("subscriptions").insert({
+        vendor_id:vendor.id,plan:planId,price:plan.price,
+        payout_rate:plan.payout,status:"active",
+        stripe_subscription_id:sub.subscriptionId,
+      });
+
+      setDone(true);
+    }catch(e){setErr(e.message);}
+    finally{setBusy(false);}
+  };
+
+  if(done)return <Success brandName={brand.brandName} planId={planId}/>;
+
+  return(<div style={{background:T.bg,minHeight:"100vh"}}>
+    <div style={{background:T.sur,borderBottom:`1.5px solid ${T.bdr}`,padding:"14px 24px",display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:50}}>
+      <div>
+        <p style={{fontFamily:"Georgia,serif",fontWeight:900,fontSize:17,color:T.ink}}>Merch on Demand</p>
+        <p style={{color:T.mut,fontSize:10,fontWeight:500}}>Vendor Application</p>
+      </div>
+      <div style={{background:T.acbg,border:`1.5px solid ${T.acbdr}`,borderRadius:99,padding:"4px 14px"}}>
+        <span style={{color:T.acc,fontSize:11,fontWeight:700}}>Step {idx+1} of {STEPS.length}</span>
+      </div>
+    </div>
+    <div style={{background:T.sur,borderBottom:`1.5px solid ${T.bdr}`,padding:"14px 24px 12px"}}><PBar step={step}/></div>
+    <div style={{maxWidth:640,margin:"0 auto",padding:"28px 24px 80px"}}>
+      {step==="brand"  &&<StepBrand   d={brand}   set={setBrand}/>}
+      {step==="contact"&&<StepContact d={contact} set={setContact}/>}
+      {step==="bank"   &&<StepBank    d={bank}    set={setBank}/>}
+      {step==="plan"   &&<StepPlan    sel={planId} onSel={setPlanId}/>}
+      {step==="payment"&&<StepPayment planId={planId}/>}
+      {step==="design" &&<StepDesign  planId={planId} slots={slots} setSlots={setSlots} products={products} loadingProducts={loadingProducts}/>}
+      {step==="review" &&<StepReview  brand={brand} contact={contact} bank={bank} planId={planId} slots={slots} products={products}/>}
+      {err&&<div style={{background:"#FEE2E2",border:"1px solid #FCA5A5",borderRadius:10,padding:12,marginTop:16}}><p style={{color:"#991B1B",fontSize:13}}>⚠ {err}</p></div>}
+      <div style={{display:"flex",gap:12,marginTop:30}}>
+        {idx>0&&<button onClick={back} style={{flex:1,padding:"13px",background:T.fnt,border:`1.5px solid ${T.bdr}`,borderRadius:12,fontSize:14,fontWeight:700,color:T.mut,cursor:"pointer"}}>← Back</button>}
+        {step==="review"
+          ?<button onClick={submit} disabled={busy} style={{flex:2,padding:"13px",background:busy?T.fnt:T.grn,border:"none",borderRadius:12,fontSize:14,fontWeight:700,color:busy?T.mut:"white",cursor:busy?"default":"pointer"}}>{busy?<Spin/>:"✓ Submit & Pay"}</button>
+          :<button onClick={next} disabled={!ok()} style={{flex:2,padding:"13px",background:!ok()?T.fnt:T.ink,border:"none",borderRadius:12,fontSize:14,fontWeight:700,color:!ok()?T.mut:"white",cursor:!ok()?"default":"pointer"}}>Continue →</button>
+        }
+      </div>
+    </div>
+  </div>);
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
+// ── STEP: PAYMENT ─────────────────────────────────────────────────────────────
+function StepPayment({planId}){
+  const plan=planOf(planId);
+  useEffect(()=>{
+    window.showCard&&window.showCard();
+    return()=>window.hideCard&&window.hideCard();
+  },[]);
+  return(<div>
+    <SHdr title="Payment Details" sub="Your subscription starts immediately. Cancel any time."/>
+    <div style={{background:T.fnt,border:`1.5px solid ${T.bdr}`,borderRadius:14,padding:16,marginBottom:24}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <div><p style={{color:T.ink,fontWeight:700,fontSize:15}}>{plan.name} Plan</p><p style={{color:T.mut,fontSize:12,marginTop:2}}>${plan.payout} per item · billed monthly</p></div>
+        <div style={{textAlign:"right"}}><p style={{fontFamily:"Georgia,serif",fontSize:22,fontWeight:900,color:plan.col}}>${plan.price}</p><p style={{color:T.mut,fontSize:10}}>/month</p></div>
+      </div>
+    </div>
+    <div style={{background:T.sur,border:`1.5px solid ${T.bdr}`,borderRadius:16,padding:20,marginBottom:16}}>
+      <p style={{fontFamily:"Georgia,serif",fontSize:15,fontWeight:700,color:T.ink,marginBottom:10}}>Card Details</p>
+      <div style={{background:T.fnt,border:`1.5px solid ${T.bdr}`,borderRadius:10,padding:"16px",textAlign:"center",minHeight:60}}>
+        <p style={{color:T.mut,fontSize:13}}>👇 A card entry field has appeared at the bottom of your screen</p>
+        <p style={{color:T.mut,fontSize:11,marginTop:4}}>Enter your card number, expiry and CVC there</p>
+      </div>
+      <div style={{display:"flex",alignItems:"center",gap:8,marginTop:12,padding:"10px 12px",background:T.grnbg,border:`1px solid ${T.grn}`,borderRadius:10}}>
+        <span>🔒</span><p style={{color:T.grn,fontSize:11,fontWeight:600}}>Secured by Stripe · 256-bit SSL · Cancel any time</p>
+      </div>
+    </div>
+    {[["First charge",`$${plan.price} today`],["Then billed","Monthly on same date"],["Cancel anytime","No lock-in"],["Payout rate",`$${plan.payout}/item sold`]].map(([l,v])=>(
+      <div key={l} style={{display:"flex",justifyContent:"space-between",padding:"7px 0",borderBottom:`1px solid ${T.bdr}`}}><span style={{color:T.mut,fontSize:13}}>{l}</span><span style={{color:T.ink,fontSize:13,fontWeight:700}}>{v}</span></div>
+    ))}
+  </div>);
+}
+
+
 function StepReview({brand,contact,bank,planId,slots,products}){
   const plan=planOf(planId);
   const R=({l,v})=>v?<div style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:`1px solid ${T.fnt}`}}><span style={{color:T.mut,fontSize:13}}>{l}</span><span style={{color:T.ink,fontSize:13,fontWeight:600,maxWidth:"60%",textAlign:"right"}}>{v}</span></div>:null;

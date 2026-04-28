@@ -21,10 +21,8 @@ select option{background:white;color:#1A1714}
 </style>
 </head>
 <body>
-<!-- Stripe card lives permanently outside React -->
-<div style="position:fixed;left:-9999px;top:0;width:300px;height:50px;overflow:hidden;opacity:0.01">
-  <div id="sc" style="padding:10px"></div>
-</div>
+<!-- Stripe card - positioned off screen until payment step -->
+<div id="sc" style="position:fixed;left:-9999px;top:0;width:300px;padding:10px"></div>
 <div id="root"></div>
 
 <script>
@@ -41,12 +39,31 @@ window.addEventListener('load',function(){
 window.moveCardTo=function(id){
   var el=document.getElementById(id);
   var sc=document.getElementById('sc');
+  console.log('moveCardTo called, el=',el,'sc=',sc);
   if(!el||!sc)return;
   el.appendChild(sc);
-  sc.style.cssText='padding:12px 14px;background:#F0EDE8;border:1.5px solid #E8E4DC;border-radius:10px;width:100%;min-height:44px';
+  sc.style.position='static';
+  sc.style.left='auto';
+  sc.style.top='auto';
+  sc.style.width='100%';
+  sc.style.padding='12px 14px';
+  sc.style.background='#F0EDE8';
+  sc.style.border='1.5px solid #E8E4DC';
+  sc.style.borderRadius='10px';
+  sc.style.minHeight='44px';
+  sc.style.pointerEvents='auto';
+  sc.style.opacity='1';
+  console.log('Card moved to slot, sc is now:',sc.style.position,sc.getBoundingClientRect());
 };
 window.parkCard=function(){
-  // intentionally empty — keep card where it is so it stays mounted
+  var sc=document.getElementById('sc');
+  if(!sc)return;
+  document.body.appendChild(sc);
+  sc.style.position='fixed';
+  sc.style.left='-9999px';
+  sc.style.top='0';
+  sc.style.opacity='0';
+  sc.style.pointerEvents='none';
 };
 window.getS=function(){return _stripe;};
 window.getC=function(){return _card;};

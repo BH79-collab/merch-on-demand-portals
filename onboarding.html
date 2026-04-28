@@ -63,26 +63,33 @@ const {useState,useRef,useEffect,useCallback}=React;
 
 // ── Fetch products from Shopify Storefront API ────────────────────────────────
 async function fetchShopifyProducts(){
-  const SF_STORE="shop-merch-on-demand.myshopify.com";
-  const SF_TOKEN="476072d25cd5d3ad49aa12975d4017f2";
-  const SF_URL="https://"+SF_STORE+"/api/2024-01/graphql.json";
-  const query="{products(first:50){edges{node{id title handle productType images(first:1){edges{node{url}}} options{name values} variants(first:100){edges{node{id title selectedOptions{name value}}}}}}}}";
-  const res=await fetch(SF_URL,{method:"POST",headers:{"Content-Type":"application/json","X-Shopify-Storefront-Access-Token":SF_TOKEN},body:JSON.stringify({query})});
-  if(!res.ok)throw new Error("Storefront API error: "+res.status);
-  const json=await res.json();
-  if(json.errors)throw new Error(json.errors[0]?.message||"GraphQL error");
-  return (json.data?.products?.edges||[]).map(({node:p})=>{
-    const colourMap={};const sizeSet=new Set();
-    p.variants.edges.map(e=>e.node).forEach(v=>{v.selectedOptions.forEach(opt=>{
-      if(/colou?r/i.test(opt.name))colourMap[opt.value]=opt.value;
-      if(/size/i.test(opt.name))sizeSet.add(opt.value);
-    });});
-    (p.options||[]).forEach(opt=>{
-      if(/colou?r/i.test(opt.name))opt.values.forEach(v=>colourMap[v]=v);
-      if(/size/i.test(opt.name))opt.values.forEach(v=>sizeSet.add(v));
+  var SF="shop-merch-on-demand.myshopify.com";
+  var ST="476072d25cd5d3ad49aa12975d4017f2";
+  var query="{products(first:50){edges{node{id title handle productType images(first:1){edges{node{url}}} options{name values} variants(first:100){edges{node{id title selectedOptions{name value}}}}}}}}";
+  var res=await fetch("https://"+SF+"/api/2024-01/graphql.json",{
+    method:"POST",
+    headers:{"Content-Type":"application/json","X-Shopify-Storefront-Access-Token":ST},
+    body:JSON.stringify({query:query})
+  });
+  if(!res.ok)throw new Error("Storefront error "+res.status);
+  var json=await res.json();
+  if(json.errors)throw new Error(json.errors[0].message||"GraphQL error");
+  return (json.data&&json.data.products&&json.data.products.edges||[]).map(function(e){
+    var p=e.node;
+    var colourMap={};var sizeSet=[];
+    p.variants.edges.map(function(e){return e.node;}).forEach(function(v){
+      v.selectedOptions.forEach(function(opt){
+        if(/colou?r/i.test(opt.name))colourMap[opt.value]=1;
+        if(/size/i.test(opt.name)&&sizeSet.indexOf(opt.value)===-1)sizeSet.push(opt.value);
+      });
+    });
+    (p.options||[]).forEach(function(opt){
+      if(/colou?r/i.test(opt.name))opt.values.forEach(function(v){colourMap[v]=1;});
+      if(/size/i.test(opt.name))opt.values.forEach(function(v){if(sizeSet.indexOf(v)===-1)sizeSet.push(v);});
     });
     return{id:p.id,handle:p.handle,name:p.title,category:p.productType||"",
-      image:p.images.edges[0]?.node?.url||null,colours:Object.keys(colourMap),sizes:[...sizeSet]};
+      image:p.images.edges[0]&&p.images.edges[0].node&&p.images.edges[0].node.url||null,
+      colours:Object.keys(colourMap),sizes:sizeSet};
   });
 }
 
@@ -492,6 +499,43 @@ function StepPlan({sel,onSel}){
   </div>);
 }
 
+// ── STEP: PAYMENT ─────────────────────────────────────────────────────────────
+function StepPayment({planId, onCheckout, checkoutLoading, checkoutErr}){
+  const plan=planOf(planId);
+  return React.createElement('div',null,
+    React.createElement(SHdr,{title:"Payment",sub:"You will be redirected to Stripe secure checkout."}),
+    React.createElement('div',{style:{background:T.fnt,border:"1.5px solid "+T.bdr,borderRadius:14,padding:20,marginBottom:20}},
+      React.createElement('div',{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}},
+        React.createElement('div',null,
+          React.createElement('p',{style:{color:T.ink,fontWeight:700,fontSize:16}},plan.name+" Plan"),
+          React.createElement('p',{style:{color:T.mut,fontSize:13,marginTop:2}},"$"+plan.payout+" per item - billed monthly")
+        ),
+        React.createElement('p',{style:{fontFamily:"Georgia,serif",fontSize:28,fontWeight:900,color:plan.col}},"$"+plan.price,
+          React.createElement('span',{style:{fontSize:13,color:T.mut,fontWeight:400}},"/mo")
+        )
+      ),
+      plan.features.map(function(f){return React.createElement('div',{key:f,style:{display:"flex",gap:8,marginBottom:6}},
+        React.createElement('span',{style:{color:plan.col}},"✓"),
+        React.createElement('p',{style:{color:T.mut,fontSize:13}},f)
+      );})
+    ),
+    React.createElement('div',{style:{background:T.grnbg,border:"1.5px solid "+T.grn,borderRadius:14,padding:16,marginBottom:20,textAlign:"center"}},
+      React.createElement('p',{style:{fontSize:22,marginBottom:6}},"🔒"),
+      React.createElement('p',{style:{color:T.grn,fontWeight:700,fontSize:14,marginBottom:4}},"Secure Stripe Checkout"),
+      React.createElement('p',{style:{color:T.mut,fontSize:13,lineHeight:1.6}},"You will be taken to Stripe secure payment page. All major cards accepted. Cancel anytime.")
+    ),
+    checkoutErr&&React.createElement('div',{style:{background:"#FEE2E2",border:"1px solid #FCA5A5",borderRadius:10,padding:12,marginBottom:16}},
+      React.createElement('p',{style:{color:"#991B1B",fontSize:13}},"⚠ "+checkoutErr)
+    ),
+    React.createElement('button',{
+      onClick:onCheckout,disabled:checkoutLoading,
+      style:{width:"100%",padding:16,background:checkoutLoading?T.fnt:T.grn,border:"none",borderRadius:14,fontSize:16,fontWeight:700,color:checkoutLoading?T.mut:"white",cursor:checkoutLoading?"default":"pointer",fontFamily:"inherit"}
+    },checkoutLoading?"Creating checkout...":"Continue to Secure Payment →"),
+    React.createElement('p',{style:{color:T.mut,fontSize:11,textAlign:"center",marginTop:10}},"You will return here automatically after payment")
+  );
+}
+
+
 // ── STEP: DESIGN ──────────────────────────────────────────────────────────────
 function StepDesign({planId,slots,setSlots,products,loadingProducts}){
   const plan=planOf(planId);
@@ -592,38 +636,29 @@ function App(){
   // Handle Stripe Checkout return
   useEffect(()=>{
     const params=new URLSearchParams(window.location.search);
-    if(params.get('checkout')==='success'){
-      // Retrieve saved vendor data and save to Supabase
-      const saved=sessionStorage.getItem('mod_vendor');
+    if(params.get("checkout")==="success"){
+      const saved=sessionStorage.getItem("mod_vendor");
       if(saved){
-        const{brand:b,contact:c,bank:bk,planId:pid,slots:sl}=JSON.parse(saved);
-        const plan=planOf(pid);
+        const v=JSON.parse(saved);
+        const plan=planOf(v.planId);
         sb.from("vendors").insert({
-          name:`${c.firstName} ${c.lastName}`,email:c.email.toLowerCase().trim(),
-          phone:c.phone,brand_name:b.brandName,store_name:b.brandName,
-          address:[c.street,c.suburb,c.state,c.postcode,c.country].filter(Boolean).join(", "),
-          bank:bk.bank,bsb:bk.bsb,account_number:bk.accountNumber,account_name:bk.accountName,
-          plan:pid,payout_rate:plan.payout,status:"pending",
-          notes:JSON.stringify({tagline:b.tagline,category:b.category,productSlots:sl,
-            stripeSessionId:params.get('session_id')}),
-        }).select().single().then(({data:vendor,error})=>{
-          if(!error&&vendor){
-            sb.from("subscriptions").insert({
-              vendor_id:vendor.id,plan:pid,price:plan.price,
-              payout_rate:plan.payout,status:"active",
-              stripe_subscription_id:params.get('session_id'),
-            });
+          name:v.contact.firstName+" "+v.contact.lastName,
+          email:v.contact.email.toLowerCase().trim(),
+          phone:v.contact.phone,brand_name:v.brand.brandName,store_name:v.brand.brandName,
+          address:[v.contact.street,v.contact.suburb,v.contact.state,v.contact.postcode,v.contact.country].filter(Boolean).join(", "),
+          bank:v.bank.bank,bsb:v.bank.bsb,account_number:v.bank.accountNumber,account_name:v.bank.accountName,
+          plan:v.planId,payout_rate:plan.payout,status:"pending",
+          notes:JSON.stringify({tagline:v.brand.tagline,category:v.brand.category,productSlots:v.slots}),
+        }).select().single().then(function(result){
+          if(!result.error&&result.data){
+            sb.from("subscriptions").insert({vendor_id:result.data.id,plan:v.planId,price:plan.price,payout_rate:plan.payout,status:"active",stripe_subscription_id:params.get("session_id")});
           }
         });
-        sessionStorage.removeItem('mod_vendor');
-        setBrand(b);setPlanId(pid);
+        sessionStorage.removeItem("mod_vendor");
+        setBrand(v.brand);setPlanId(v.planId);
       }
       setDone(true);
-      // Clean URL
-      window.history.replaceState({},'',window.location.pathname);
-    }
-    if(params.get('checkout')==='cancel'){
-      window.history.replaceState({},'',window.location.pathname);
+      window.history.replaceState({},"",window.location.pathname);
     }
   },[]);
 
@@ -652,29 +687,23 @@ function App(){
   const handleCheckout=async()=>{
     setCheckoutLoading(true);setCheckoutErr("");
     try{
-      // Save vendor data to sessionStorage first
       const vendorData={brand,contact,bank,planId,slots};
-      sessionStorage.setItem('mod_vendor',JSON.stringify(vendorData));
-
-      const plan=planOf(planId);
+      sessionStorage.setItem("mod_vendor",JSON.stringify(vendorData));
       const baseUrl=window.location.origin+window.location.pathname;
-      const successUrl=baseUrl+"?checkout=success&session_id={CHECKOUT_SESSION_ID}";
-      const cancelUrl=baseUrl+"?checkout=cancel";
-
       const res=await fetch(PROXY+"/stripe/checkout",{
         method:"POST",
         headers:{"Content-Type":"application/json"},
         body:JSON.stringify({
           priceId:PRICE_IDS[planId],
-          successUrl,
-          cancelUrl,
+          successUrl:baseUrl+"?checkout=success&session_id={CHECKOUT_SESSION_ID}",
+          cancelUrl:baseUrl+"?checkout=cancel",
           email:contact.email,
-          name:`${contact.firstName} ${contact.lastName}`,
-          metadata:{planId,vendorName:brand.brandName},
+          name:contact.firstName+" "+contact.lastName,
+          metadata:{planId:planId,vendorName:brand.brandName},
         }),
       });
       const data=await res.json();
-      if(!res.ok)throw new Error(data.error||"Could not create checkout session");
+      if(!res.ok)throw new Error(data.error||"Could not create checkout");
       window.location.href=data.url;
     }catch(e){
       setCheckoutErr(e.message);
@@ -701,13 +730,13 @@ function App(){
       {step==="contact"&&<StepContact d={contact} set={setContact}/>}
       {step==="bank"   &&<StepBank    d={bank}    set={setBank}/>}
       {step==="plan"   &&<StepPlan    sel={planId} onSel={setPlanId}/>}
-      {step==="payment"&&<StepPayment planId={planId} onCheckout={handleCheckout} checkoutLoading={checkoutLoading} checkoutErr={checkoutErr}/>}
+      {step==="payment"&&React.createElement(StepPayment,{planId:planId,onCheckout:handleCheckout,checkoutLoading:checkoutLoading,checkoutErr:checkoutErr})}
       {step==="design" &&<StepDesign  planId={planId} slots={slots} setSlots={setSlots} products={products} loadingProducts={loadingProducts}/>}
-      {step==="review" &&<StepReview  brand={brand} contact={contact} bank={bank} planId={planId} slots={slots} products={products}/>}
+
       {err&&<div style={{background:"#FEE2E2",border:"1px solid #FCA5A5",borderRadius:10,padding:12,marginTop:16}}><p style={{color:"#991B1B",fontSize:13}}>⚠ {err}</p></div>}
       <div style={{display:"flex",gap:12,marginTop:30}}>
         {idx>0&&<button onClick={back} style={{flex:1,padding:"13px",background:T.fnt,border:`1.5px solid ${T.bdr}`,borderRadius:12,fontSize:14,fontWeight:700,color:T.mut,cursor:"pointer"}}>← Back</button>}
-        {step!=="payment"&&<button onClick={next} disabled={!ok()} style={{flex:2,padding:"13px",background:!ok()?T.fnt:T.ink,border:"none",borderRadius:12,fontSize:14,fontWeight:700,color:!ok()?T.mut:"white",cursor:!ok()?"default":"pointer"}}>Continue →</button>}
+        {step!=="payment"&&React.createElement('button',{onClick:next,disabled:!ok(),style:{flex:2,padding:"13px",background:!ok()?T.fnt:T.ink,border:"none",borderRadius:12,fontSize:14,fontWeight:700,color:!ok()?T.mut:"white",cursor:!ok()?"default":"pointer",fontFamily:"inherit"}},"Continue →")}
       </div>
     </div>
   </div>);
@@ -717,30 +746,3 @@ ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
 </script>
 </body>
 </html>
-// ── STEP: PAYMENT ─────────────────────────────────────────────────────────────
-function StepPayment({planId, onCheckout, checkoutLoading, checkoutErr}){
-  const plan=planOf(planId);
-  return(<div>
-    <SHdr title="Payment" sub="You will be redirected to Stripe secure checkout to complete your subscription."/>
-    <div style={{background:T.fnt,border:`1.5px solid ${T.bdr}`,borderRadius:14,padding:20,marginBottom:20}}>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
-        <div><p style={{color:T.ink,fontWeight:700,fontSize:16}}>{plan.name} Plan</p><p style={{color:T.mut,fontSize:13,marginTop:2}}>${plan.payout} per item sold · billed monthly</p></div>
-        <p style={{fontFamily:"Georgia,serif",fontSize:28,fontWeight:900,color:plan.col}}>${plan.price}<span style={{fontSize:13,color:T.mut,fontWeight:400}}>/mo</span></p>
-      </div>
-      {plan.features.map(f=><div key={f} style={{display:"flex",gap:8,marginBottom:6}}><span style={{color:plan.col}}>✓</span><p style={{color:T.mut,fontSize:13}}>{f}</p></div>)}
-    </div>
-    <div style={{background:T.grnbg,border:`1.5px solid ${T.grn}`,borderRadius:14,padding:16,marginBottom:20,textAlign:"center"}}>
-      <p style={{fontSize:22,marginBottom:6}}>🔒</p>
-      <p style={{color:T.grn,fontWeight:700,fontSize:14,marginBottom:4}}>Secure Stripe Checkout</p>
-      <p style={{color:T.mut,fontSize:13,lineHeight:1.6}}>You will be taken to Stripe secure payment page. All major cards accepted. Cancel any time.</p>
-    </div>
-    {checkoutErr&&<div style={{background:"#FEE2E2",border:"1px solid #FCA5A5",borderRadius:10,padding:12,marginBottom:16}}><p style={{color:"#991B1B",fontSize:13}}>⚠ {checkoutErr}</p></div>}
-    <button onClick={onCheckout} disabled={checkoutLoading}
-      style={{width:"100%",padding:16,background:checkoutLoading?T.fnt:T.grn,border:"none",borderRadius:14,fontSize:16,fontWeight:700,color:checkoutLoading?T.mut:"white",cursor:checkoutLoading?"default":"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
-      {checkoutLoading?<><Spin/> Creating checkout…</>:"Continue to Secure Payment →"}
-    </button>
-    <p style={{color:T.mut,fontSize:11,textAlign:"center",marginTop:10}}>You will return here automatically after payment</p>
-  </div>);
-}
-
-

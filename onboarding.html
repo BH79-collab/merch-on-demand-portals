@@ -18,55 +18,59 @@ input,select,textarea,button{font-family:inherit}
 ::-webkit-scrollbar{width:4px}
 ::-webkit-scrollbar-thumb{background:#E8E4DC;border-radius:2px}
 select option{background:white;color:#1A1714}
+#sc-mount{padding:12px 14px;background:#F0EDE8;border:1.5px solid #E8E4DC;border-radius:10px;min-height:44px}
 </style>
 </head>
 <body>
 <!-- Stripe card - positioned off screen until payment step -->
-<div id="sc" style="position:fixed;left:-9999px;top:0;width:300px;padding:10px"></div>
+<div id="sc-mount" style="display:none"></div>
 <div id="root"></div>
 
 <script>
-var _stripe=null,_card=null,_cardReady=false;
-window.addEventListener('load',function(){
-  _stripe=Stripe('pk_live_51O2OzhLgoqGtM7YGmzxSIZM6XNNfgJGpfIQYYcoT7JnFneionzk0gFfn0S8AiqvJZDhGI0zj2qQ28FvPF2Z0fFs7006Y2B3SXR');
-  _card=_stripe.elements().create('card',{style:{base:{color:'#1A1714',fontFamily:'Segoe UI,sans-serif',fontSize:'15px','::placeholder':{color:'#8C8580'}},invalid:{color:'#D4521A'}}});
-  _card.mount('#sc');
-  _card.on('change',function(e){
-    _cardReady=!e.empty&&!e.error;
-    window.dispatchEvent(new CustomEvent('sc_ready',{detail:_cardReady}));
+// Stripe — create fresh card element each time payment step opens
+var _stripe = Stripe('pk_live_51O2OzhLgoqGtM7YGmzxSIZM6XNNfgJGpfIQYYcoT7JnFneionzk0gFfn0S8AiqvJZDhGI0zj2qQ28FvPF2Z0fFs7006Y2B3SXR');
+var _card = null;
+var _cardReady = false;
+
+window.mountCard = function() {
+  // Destroy existing card if any
+  if (_card) {
+    try { _card.destroy(); } catch(e) {}
+    _card = null;
+    _cardReady = false;
+  }
+  var el = document.getElementById('sc-mount');
+  if (!el) return;
+  el.innerHTML = '';
+  el.style.display = 'block';
+
+  var elements = _stripe.elements();
+  _card = elements.create('card', {
+    style: {
+      base: { color: '#1A1714', fontFamily: 'Segoe UI, sans-serif', fontSize: '15px', '::placeholder': { color: '#8C8580' } },
+      invalid: { color: '#D4521A' }
+    }
   });
-});
-window.moveCardTo=function(id){
-  var el=document.getElementById(id);
-  var sc=document.getElementById('sc');
-  console.log('moveCardTo called, el=',el,'sc=',sc);
-  if(!el||!sc)return;
-  el.appendChild(sc);
-  sc.style.position='static';
-  sc.style.left='auto';
-  sc.style.top='auto';
-  sc.style.width='100%';
-  sc.style.padding='12px 14px';
-  sc.style.background='#F0EDE8';
-  sc.style.border='1.5px solid #E8E4DC';
-  sc.style.borderRadius='10px';
-  sc.style.minHeight='44px';
-  sc.style.pointerEvents='auto';
-  sc.style.opacity='1';
-  console.log('Card moved to slot, sc is now:',sc.style.position,sc.getBoundingClientRect());
+  _card.mount('#sc-mount');
+  _card.on('change', function(e) {
+    _cardReady = !e.empty && !e.error;
+    window.dispatchEvent(new CustomEvent('sc_ready', { detail: _cardReady }));
+  });
 };
-window.parkCard=function(){
-  var sc=document.getElementById('sc');
-  if(!sc)return;
-  document.body.appendChild(sc);
-  sc.style.position='fixed';
-  sc.style.left='-9999px';
-  sc.style.top='0';
-  sc.style.opacity='0';
-  sc.style.pointerEvents='none';
+
+window.unmountCard = function() {
+  if (_card) {
+    try { _card.destroy(); } catch(e) {}
+    _card = null;
+    _cardReady = false;
+    window.dispatchEvent(new CustomEvent('sc_ready', { detail: false }));
+  }
+  var el = document.getElementById('sc-mount');
+  if (el) { el.style.display = 'none'; el.innerHTML = ''; }
 };
-window.getS=function(){return _stripe;};
-window.getC=function(){return _card;};
+
+window.getS = function() { return _stripe; };
+window.getC = function() { return _card; };
 </script>
 
 <script type="text/babel">
@@ -585,9 +589,18 @@ function StepPlan({sel,onSel}){
 function StepPayment({planId}){
   const plan=planOf(planId);
   useEffect(()=>{
-    const t=setTimeout(()=>window.moveCardTo&&window.moveCardTo("sc-slot"),150);
-    // Don't park card on cleanup — keeps it mounted and ready for submit
-    return()=>clearTimeout(t);
+    // Mount fresh card element when entering payment step
+    const t=setTimeout(()=>{
+      // Move sc-mount div into the slot
+      var mount=document.getElementById('sc-mount');
+      var slot=document.getElementById('sc-slot');
+      if(mount&&slot){slot.appendChild(mount);mount.style.display='block';}
+      window.mountCard&&window.mountCard();
+    },100);
+    return()=>{
+      clearTimeout(t);
+      // Don't unmount — keep card alive for submit
+    };
   },[]);
   return(<div>
     <SHdr title="Payment Details" sub="Your subscription starts immediately. Cancel any time."/>
@@ -605,7 +618,7 @@ function StepPayment({planId}){
     </div>
     <div style={{background:T.sur,border:`1.5px solid ${T.bdr}`,borderRadius:16,padding:20,marginBottom:16}}>
       <p style={{fontFamily:"Georgia,serif",fontSize:15,fontWeight:700,color:T.ink,marginBottom:14}}>Card Details</p>
-      <div id="sc-slot" style={{minHeight:46}}/>
+      <div id="sc-slot" style={{minHeight:46,padding:"2px"}}/>
       <div style={{display:"flex",alignItems:"center",gap:8,marginTop:14,padding:"10px 12px",background:T.grnbg,border:`1px solid ${T.grn}`,borderRadius:10}}>
         <span style={{fontSize:16}}>🔒</span>
         <p style={{color:T.grn,fontSize:11,fontWeight:600}}>Secured by Stripe · 256-bit SSL · Cancel any time</p>

@@ -420,6 +420,19 @@ function AdminPortal({onLogout}){
     showToast(`Vendor ${status}`);
   };
 
+  const openShopifySetup=(vendor)=>{
+    // Parse product slots from notes
+    let slots=[];
+    try{const n=JSON.parse(vendor.notes||"{}");slots=n.productSlots||[];}catch(e){}
+    const brandName=vendor.brand_name||vendor.store_name||vendor.name;
+    // Build Shopify new collection URL
+    const collectionUrl=`https://admin.shopify.com/store/shop-merch-on-demand/collections/new?collection[title]=${encodeURIComponent(brandName)}`;
+    window.open(collectionUrl,"_blank");
+    // Show product info in a toast for reference
+    const productNames=slots.filter(s=>s&&s.productId).map(s=>s.productId).join(", ");
+    showToast(`Opening Shopify for ${brandName}. Products: ${productNames||"none selected"}`);
+  };
+
   const now=new Date();
   const period=now.toLocaleString("en-AU",{month:"long",year:"numeric"});
   const activeVendors=vendors.filter(v=>v.status==="active");
@@ -522,7 +535,28 @@ function AdminPortal({onLogout}){
               <Btn small color={S.green} onClick={()=>setPlanModal(vd.id)}>Change Plan</Btn>
               {vd.status==="active"?<Btn small outline color={S.amber} onClick={()=>setStatus(vd.id,"paused")}>Pause</Btn>:<Btn small outline color={S.green} onClick={()=>setStatus(vd.id,"active")}>Activate</Btn>}
               <Btn small outline color={S.red} onClick={()=>setStatus(vd.id,"removed")}>Remove</Btn>
+              <Btn small outline color={"#00AEEF"} onClick={()=>openShopifySetup(vd)}>🛍 Setup in Shopify</Btn>
             </div>
+            {/* Design summary */}
+            {(()=>{
+              let slots=[];
+              try{const n=JSON.parse(vd.notes||"{}");slots=n.productSlots||[];}catch(e){}
+              const filled=slots.filter(s=>s&&s.productId);
+              if(!filled.length)return null;
+              return(<div style={{background:S.bg,borderRadius:12,padding:14,marginBottom:14}}>
+                <p style={{fontWeight:700,color:S.text,marginBottom:10,fontSize:13}}>Design Selections</p>
+                {filled.map((s,i)=>(
+                  <div key={i} style={{background:S.card,borderRadius:8,padding:10,marginBottom:8}}>
+                    <p style={{color:S.text,fontWeight:600,fontSize:12,marginBottom:4}}>Product {i+1}: {s.productId}</p>
+                    {s.colours&&s.colours.length>0&&<p style={{color:S.muted,fontSize:11,marginBottom:2}}>Colours: {s.colours.join(", ")}</p>}
+                    {s.sizes&&s.sizes.length>0&&<p style={{color:S.muted,fontSize:11,marginBottom:2}}>Sizes: {s.sizes.join(", ")}</p>}
+                    {s.frontLogo&&<p style={{color:S.muted,fontSize:11,marginBottom:2}}>Front logo: {s.frontLogo.name}</p>}
+                    {s.backLogo&&<p style={{color:S.muted,fontSize:11,marginBottom:2}}>Back logo: {s.backLogo.name}</p>}
+                    {s.notes&&<p style={{color:S.muted,fontSize:11,fontStyle:"italic"}}>Notes: {s.notes}</p>}
+                  </div>
+                ))}
+              </div>);
+            })()}
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
               {(()=>{const vOrders=orders.filter(o=>o.vendor_id===vd.id&&o.period===period);const qty=vOrders.reduce((s,o)=>s+(o.quantity||0),0);return(<>
                 <Stat label="Items This Month" value={qty} sub={period}/>

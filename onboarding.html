@@ -568,7 +568,8 @@ function StepPayment({planId}){
   const plan=planOf(planId);
   useEffect(()=>{
     const t=setTimeout(()=>window.moveCardTo&&window.moveCardTo("sc-slot"),150);
-    return()=>{clearTimeout(t);window.parkCard&&window.parkCard();};
+    // Don't park card on cleanup — keeps it mounted and ready for submit
+    return()=>clearTimeout(t);
   },[]);
   return(<div>
     <SHdr title="Payment Details" sub="Your subscription starts immediately. Cancel any time."/>

@@ -18,59 +18,31 @@ input,select,textarea,button{font-family:inherit}
 ::-webkit-scrollbar{width:4px}
 ::-webkit-scrollbar-thumb{background:#E8E4DC;border-radius:2px}
 select option{background:white;color:#1A1714}
-#sc-mount{padding:12px 14px;background:#F0EDE8;border:1.5px solid #E8E4DC;border-radius:10px;min-height:44px}
 </style>
 </head>
 <body>
-<!-- Stripe card - positioned off screen until payment step -->
-<div id="sc-mount" style="display:none"></div>
+<!-- Stripe card lives permanently outside React -->
+<style>
+#sc-mount{padding:12px 14px;background:#F0EDE8;border:1.5px solid #E8E4DC;border-radius:10px;min-height:44px}
+</style>
+<div id="sc-mount"></div>
 <div id="root"></div>
-
 <script>
-// Stripe — create fresh card element each time payment step opens
-var _stripe = Stripe('pk_live_51O2OzhLgoqGtM7YGmzxSIZM6XNNfgJGpfIQYYcoT7JnFneionzk0gFfn0S8AiqvJZDhGI0zj2qQ28FvPF2Z0fFs7006Y2B3SXR');
-var _card = null;
-var _cardReady = false;
-
-window.mountCard = function() {
-  // Destroy existing card if any
-  if (_card) {
-    try { _card.destroy(); } catch(e) {}
-    _card = null;
-    _cardReady = false;
-  }
-  var el = document.getElementById('sc-mount');
-  if (!el) return;
-  el.innerHTML = '';
-  el.style.display = 'block';
-
-  var elements = _stripe.elements();
-  _card = elements.create('card', {
-    style: {
-      base: { color: '#1A1714', fontFamily: 'Segoe UI, sans-serif', fontSize: '15px', '::placeholder': { color: '#8C8580' } },
-      invalid: { color: '#D4521A' }
-    }
-  });
-  _card.mount('#sc-mount');
-  _card.on('change', function(e) {
-    _cardReady = !e.empty && !e.error;
-    window.dispatchEvent(new CustomEvent('sc_ready', { detail: _cardReady }));
-  });
+var _stripe=Stripe('pk_live_51O2OzhLgoqGtM7YGmzxSIZM6XNNfgJGpfIQYYcoT7JnFneionzk0gFfn0S8AiqvJZDhGI0zj2qQ28FvPF2Z0fFs7006Y2B3SXR');
+var _card=null,_cardReady=false;
+window.mountCard=function(){
+  if(_card){try{_card.destroy();}catch(e){}  _card=null;_cardReady=false;}
+  var el=document.getElementById('sc-mount');
+  if(!el)return;
+  el.innerHTML='';
+  var c=_stripe.elements().create('card',{style:{base:{color:'#1A1714',fontFamily:'Segoe UI,sans-serif',fontSize:'15px','::placeholder':{color:'#8C8580'}},invalid:{color:'#D4521A'}}});
+  c.mount('#sc-mount');
+  c.on('change',function(e){_cardReady=!e.empty&&!e.error;window.dispatchEvent(new CustomEvent('sc_ready',{detail:_cardReady}));});
+  _card=c;
+  console.log('Stripe card mounted fresh');
 };
-
-window.unmountCard = function() {
-  if (_card) {
-    try { _card.destroy(); } catch(e) {}
-    _card = null;
-    _cardReady = false;
-    window.dispatchEvent(new CustomEvent('sc_ready', { detail: false }));
-  }
-  var el = document.getElementById('sc-mount');
-  if (el) { el.style.display = 'none'; el.innerHTML = ''; }
-};
-
-window.getS = function() { return _stripe; };
-window.getC = function() { return _card; };
+window.getS=function(){return _stripe;};
+window.getC=function(){return _card;};
 </script>
 
 <script type="text/babel">
@@ -112,70 +84,35 @@ const T={bg:"#FAF8F4",sur:"#FFFFFF",bdr:"#E8E4DC",ink:"#1A1714",mut:"#8C8580",fn
 
 const {useState,useRef,useEffect,useCallback}=React;
 
-// ── Fetch products via Shopify Storefront API (public, no proxy needed) ────────
+// ── Fetch products via Shopify Storefront GraphQL API ────────────────────────
 async function fetchShopifyProducts(){
-  const SF_STORE = "shop-merch-on-demand.myshopify.com";
-  const SF_TOKEN = "476072d25cd5d3ad49aa12975d4017f2";
-  const SF_URL   = `https://${SF_STORE}/api/2024-01/graphql.json`;
-
-  const query = `{
-    products(first: 50) {
-      edges {
-        node {
-          id title handle productType
-          images(first: 1) { edges { node { url } } }
-          options { name values }
-          variants(first: 100) {
-            edges {
-              node {
-                id title
-                selectedOptions { name value }
-              }
-            }
-          }
-        }
-      }
-    }
-  }`;
-
-  const res = await fetch(SF_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Shopify-Storefront-Access-Token": SF_TOKEN,
-    },
-    body: JSON.stringify({ query }),
+  const SF_STORE="shop-merch-on-demand.myshopify.com";
+  const SF_TOKEN="476072d25cd5d3ad49aa12975d4017f2";
+  const SF_URL="https://"+SF_STORE+"/api/2024-01/graphql.json";
+  const query="{products(first:50){edges{node{id title handle productType images(first:1){edges{node{url}}} options{name values} variants(first:100){edges{node{id title selectedOptions{name value}}}}}}}}";
+  const res=await fetch(SF_URL,{
+    method:"POST",
+    headers:{"Content-Type":"application/json","X-Shopify-Storefront-Access-Token":SF_TOKEN},
+    body:JSON.stringify({query}),
   });
-
-  if(!res.ok) throw new Error("Storefront API error: " + res.status);
-  const json = await res.json();
-  if(json.errors) throw new Error(json.errors[0]?.message || "GraphQL error");
-
-  const edges = json.data?.products?.edges || [];
-  return edges.map(({node: p}) => {
-    const variants = p.variants.edges.map(e => e.node);
-    const colourMap = {};
-    const sizeSet = new Set();
-    variants.forEach(v => {
-      v.selectedOptions.forEach(opt => {
-        if (/colou?r/i.test(opt.name)) colourMap[opt.value] = opt.value;
-        if (/size/i.test(opt.name))    sizeSet.add(opt.value);
-      });
+  if(!res.ok)throw new Error("Storefront API error: "+res.status);
+  const json=await res.json();
+  if(json.errors)throw new Error(json.errors[0]?.message||"GraphQL error");
+  const edges=json.data?.products?.edges||[];
+  return edges.map(({node:p})=>{
+    const variants=p.variants.edges.map(e=>e.node);
+    const colourMap={};const sizeSet=new Set();
+    variants.forEach(v=>{v.selectedOptions.forEach(opt=>{
+      if(/colou?r/i.test(opt.name))colourMap[opt.value]=opt.value;
+      if(/size/i.test(opt.name))sizeSet.add(opt.value);
+    });});
+    (p.options||[]).forEach(opt=>{
+      if(/colou?r/i.test(opt.name))opt.values.forEach(v=>colourMap[v]=v);
+      if(/size/i.test(opt.name))opt.values.forEach(v=>sizeSet.add(v));
     });
-    // Also use options directly
-    (p.options||[]).forEach(opt => {
-      if (/colou?r/i.test(opt.name)) opt.values.forEach(v => colourMap[v] = v);
-      if (/size/i.test(opt.name))    opt.values.forEach(v => sizeSet.add(v));
-    });
-    return {
-      id: p.id,
-      handle: p.handle,
-      name: p.title,
-      category: p.productType || "",
-      image: p.images.edges[0]?.node?.url || null,
-      colours: Object.keys(colourMap),
-      sizes: [...sizeSet],
-    };
+    return{id:p.id,handle:p.handle,name:p.title,category:p.productType||"",
+      image:p.images.edges[0]?.node?.url||null,
+      colours:Object.keys(colourMap),sizes:[...sizeSet]};
   });
 }
 
@@ -589,18 +526,13 @@ function StepPlan({sel,onSel}){
 function StepPayment({planId}){
   const plan=planOf(planId);
   useEffect(()=>{
-    // Mount fresh card element when entering payment step
     const t=setTimeout(()=>{
-      // Move sc-mount div into the slot
       var mount=document.getElementById('sc-mount');
       var slot=document.getElementById('sc-slot');
-      if(mount&&slot){slot.appendChild(mount);mount.style.display='block';}
+      if(mount&&slot){slot.innerHTML='';slot.appendChild(mount);}
       window.mountCard&&window.mountCard();
-    },100);
-    return()=>{
-      clearTimeout(t);
-      // Don't unmount — keep card alive for submit
-    };
+    },150);
+    return()=>clearTimeout(t);
   },[]);
   return(<div>
     <SHdr title="Payment Details" sub="Your subscription starts immediately. Cancel any time."/>
@@ -618,7 +550,7 @@ function StepPayment({planId}){
     </div>
     <div style={{background:T.sur,border:`1.5px solid ${T.bdr}`,borderRadius:16,padding:20,marginBottom:16}}>
       <p style={{fontFamily:"Georgia,serif",fontSize:15,fontWeight:700,color:T.ink,marginBottom:14}}>Card Details</p>
-      <div id="sc-slot" style={{minHeight:46,padding:"2px"}}/>
+      <div id="sc-slot" style={{minHeight:46}}/>
       <div style={{display:"flex",alignItems:"center",gap:8,marginTop:14,padding:"10px 12px",background:T.grnbg,border:`1px solid ${T.grn}`,borderRadius:10}}>
         <span style={{fontSize:16}}>🔒</span>
         <p style={{color:T.grn,fontSize:11,fontWeight:600}}>Secured by Stripe · 256-bit SSL · Cancel any time</p>
@@ -634,14 +566,12 @@ function StepPayment({planId}){
 }
 
 // ── STEP: DESIGN ──────────────────────────────────────────────────────────────
-function StepDesign({planId,slots,setSlots,products,loadingProducts,productErr}){
+function StepDesign({planId,slots,setSlots,products,loadingProducts}){
   const plan=planOf(planId);
   const maxSlots=plan.max===999?10:plan.max;
   const[num,setNum]=useState(Math.max(1,(slots||[]).filter(Boolean).length)||1);
   return(<div>
     <SHdr title="Product Design" sub={`Design up to ${plan.max===999?"unlimited":plan.max} products on your ${plan.name} plan. Click the garment to upload your logo.`}/>
-    {loadingProducts&&<div style={{textAlign:"center",padding:"20px 0",color:T.mut,fontSize:13}}><Spin/> Loading products from Shopify…</div>}
-    {productErr&&<div style={{background:"#FEF3C7",border:"1px solid #F59E0B",borderRadius:10,padding:12,marginBottom:16,fontSize:12,color:"#92400E"}}>⚠ Could not load products: {productErr}<br/>Open browser console (F12) for details.</div>}
     {Array.from({length:num}).map((_,i)=>(
       <DesignSlot key={i} num={i+1} total={num} planMax={maxSlots}
         design={slots[i]} onChange={d=>{const s=[...slots];s[i]=d;setSlots(s);}}
@@ -732,19 +662,10 @@ function App(){
   const[slots,setSlots]=useState([null]);
 
   // Load Shopify products on mount
-  const[productErr,setProductErr]=useState("");
   useEffect(()=>{
     fetchShopifyProducts()
-      .then(p=>{
-        console.log("Products loaded:",p.length);
-        setProducts(p);
-        setLoadingProducts(false);
-      })
-      .catch(e=>{
-        console.error("Product fetch error:",e);
-        setProductErr(e.message);
-        setLoadingProducts(false);
-      });
+      .then(p=>{setProducts(p);setLoadingProducts(false);})
+      .catch(e=>{console.warn("Storefront API:",e);setLoadingProducts(false);});
   },[]);
 
   // Listen for Stripe card ready
@@ -846,7 +767,7 @@ function App(){
       {step==="bank"   &&<StepBank    d={bank}    set={setBank}/>}
       {step==="plan"   &&<StepPlan    sel={planId} onSel={setPlanId}/>}
       {step==="payment"&&<StepPayment planId={planId}/>}
-      {step==="design" &&<StepDesign  planId={planId} slots={slots} setSlots={setSlots} products={products} loadingProducts={loadingProducts} productErr={productErr}/>}
+      {step==="design" &&<StepDesign  planId={planId} slots={slots} setSlots={setSlots} products={products} loadingProducts={loadingProducts}/>}
       {step==="review" &&<StepReview  brand={brand} contact={contact} bank={bank} planId={planId} slots={slots} products={products}/>}
       {err&&<div style={{background:"#FEE2E2",border:"1px solid #FCA5A5",borderRadius:10,padding:12,marginTop:16}}><p style={{color:"#991B1B",fontSize:13}}>⚠ {err}</p></div>}
       <div style={{display:"flex",gap:12,marginTop:30}}>

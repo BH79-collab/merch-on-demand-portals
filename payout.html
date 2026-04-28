@@ -70,7 +70,7 @@ async function sfetch(proxy,store,token,path){
   try{res=await fetch(url,{headers:{"x-shopify-token":token}});}
   catch(e){throw new Error(`Cannot reach proxy — is it running? (${e.message})`);}
   if(res.status===401)throw new Error("401 — Invalid API token");
-  if(res.status===403)throw new Error("403 — Missing scopes: read_orders, read_products, read_collections");
+  // 403 scope check removed - orders now come from Supabase
   if(res.status===404)throw new Error("404 — Store not found");
   if(res.status===429)throw new Error("429 — Rate limited, wait 10s");
   if(!res.ok)throw new Error(`HTTP ${res.status}`);
@@ -326,9 +326,14 @@ function App(){
       if(store==="demo"){await new Promise(r=>setTimeout(r,800));setOrders(DEMO_ORDERS);setCollections(DEMO_COLLECTIONS);setSyncMsg("Demo data loaded ✓");}
       else{
         setSyncMsg("Loading orders from Supabase…");
-        const res=await fetch(proxy+"/supabase/orders");
-        if(!res.ok)throw new Error("Could not load orders — "+res.status);
-        const rows=await res.json();
+        const supaRes=await fetch("https://xwennpgxsndjpbwdmcwk.supabase.co/rest/v1/orders?select=*&order=created_at.desc&limit=250",{
+          headers:{
+            "apikey":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh3ZW5ucGd4c25kanBid2RtY3drIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY5ODc1MjksImV4cCI6MjA5MjU2MzUyOX0.LAyCQtlsF9puLftwyK67qwsYED7PksZeP3QoD0lmuTA",
+            "Authorization":"Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh3ZW5ucGd4c25kanBid2RtY3drIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY5ODc1MjksImV4cCI6MjA5MjU2MzUyOX0.LAyCQtlsF9puLftwyK67qwsYED7PksZeP3QoD0lmuTA",
+          }
+        });
+        if(!supaRes.ok)throw new Error("Could not load orders — "+supaRes.status);
+        const rows=await supaRes.json();
         const processed=[];
         for(const order of rows){
           const items=order.line_items||[];

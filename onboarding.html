@@ -22,7 +22,9 @@ select option{background:white;color:#1A1714}
 </head>
 <body>
 <!-- Stripe card lives permanently outside React -->
-<div id="sc" style="position:fixed;left:-9999px;top:-9999px;pointer-events:none"></div>
+<div style="position:fixed;left:-9999px;top:0;width:300px;height:50px;overflow:hidden;opacity:0.01">
+  <div id="sc" style="padding:10px"></div>
+</div>
 <div id="root"></div>
 
 <script>
@@ -40,12 +42,11 @@ window.moveCardTo=function(id){
   var el=document.getElementById(id);
   var sc=document.getElementById('sc');
   if(!el||!sc)return;
-  sc.style.cssText='padding:12px 14px;background:#F0EDE8;border:1.5px solid #E8E4DC;border-radius:10px;position:static;left:auto;top:auto;pointer-events:auto;width:100%';
   el.appendChild(sc);
+  sc.style.cssText='padding:12px 14px;background:#F0EDE8;border:1.5px solid #E8E4DC;border-radius:10px;width:100%;min-height:44px';
 };
 window.parkCard=function(){
-  var sc=document.getElementById('sc');
-  if(sc){document.body.appendChild(sc);sc.style.cssText='position:fixed;left:-9999px;top:-9999px;pointer-events:none';}
+  // intentionally empty — keep card where it is so it stays mounted
 };
 window.getS=function(){return _stripe;};
 window.getC=function(){return _card;};

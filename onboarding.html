@@ -400,7 +400,7 @@ function DesignSlot({num,total,planMax,design,onChange,products,loadingProducts}
 function StepBrand({d,set}){
   const s=k=>v=>set(x=>({...x,[k]:v}));
   return(<div>
-    <SHdr title="Your Brand" sub="Tell us about the brand you're bringing to Merch on Demand."/>
+    <SHdr title="Your Brand" sub="Tell us about the brand you are bringing to Merch on Demand."/>
     <Inp label="Brand Name" req val={d.brandName} set={s("brandName")} ph="e.g. Rivera Designs"/>
     <Inp label="Tagline" val={d.tagline} set={s("tagline")} ph="Bold streetwear for everyday people" hint="Under 10 words — shown on your store page."/>
     <div style={{marginBottom:22}}>
@@ -444,7 +444,7 @@ function StepContact({d,set}){
 function StepBank({d,set}){
   const s=k=>v=>set(x=>({...x,[k]:v}));
   return(<div>
-    <SHdr title="Banking Details" sub="We'll use these to send your monthly payouts. Encrypted and never shared."/>
+    <SHdr title="Banking Details" sub="Used to send your monthly payouts. Encrypted and never shared."/>
     <div style={{background:T.acbg,border:`1.5px solid ${T.acbdr}`,borderRadius:12,padding:14,marginBottom:22}}>
       <p style={{color:T.acc,fontSize:12,fontWeight:700,marginBottom:4}}>🔒 Secure & Private</p>
       <p style={{color:T.mut,fontSize:12,lineHeight:1.6}}>Used solely for monthly payout transfers via ABA Direct Entry.</p>
@@ -721,7 +721,7 @@ ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
 function StepPayment({planId, onCheckout, checkoutLoading, checkoutErr}){
   const plan=planOf(planId);
   return(<div>
-    <SHdr title="Payment" sub="You'll be redirected to Stripe's secure checkout page to complete your subscription."/>
+    <SHdr title="Payment" sub="You will be redirected to Stripe secure checkout to complete your subscription."/>
     <div style={{background:T.fnt,border:`1.5px solid ${T.bdr}`,borderRadius:14,padding:20,marginBottom:20}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
         <div><p style={{color:T.ink,fontWeight:700,fontSize:16}}>{plan.name} Plan</p><p style={{color:T.mut,fontSize:13,marginTop:2}}>${plan.payout} per item sold · billed monthly</p></div>
@@ -732,14 +732,14 @@ function StepPayment({planId, onCheckout, checkoutLoading, checkoutErr}){
     <div style={{background:T.grnbg,border:`1.5px solid ${T.grn}`,borderRadius:14,padding:16,marginBottom:20,textAlign:"center"}}>
       <p style={{fontSize:22,marginBottom:6}}>🔒</p>
       <p style={{color:T.grn,fontWeight:700,fontSize:14,marginBottom:4}}>Secure Stripe Checkout</p>
-      <p style={{color:T.mut,fontSize:13,lineHeight:1.6}}>You'll be taken to Stripe's secure payment page. All major cards accepted. Cancel any time.</p>
+      <p style={{color:T.mut,fontSize:13,lineHeight:1.6}}>You will be taken to Stripe secure payment page. All major cards accepted. Cancel any time.</p>
     </div>
     {checkoutErr&&<div style={{background:"#FEE2E2",border:"1px solid #FCA5A5",borderRadius:10,padding:12,marginBottom:16}}><p style={{color:"#991B1B",fontSize:13}}>⚠ {checkoutErr}</p></div>}
     <button onClick={onCheckout} disabled={checkoutLoading}
       style={{width:"100%",padding:16,background:checkoutLoading?T.fnt:T.grn,border:"none",borderRadius:14,fontSize:16,fontWeight:700,color:checkoutLoading?T.mut:"white",cursor:checkoutLoading?"default":"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
       {checkoutLoading?<><Spin/> Creating checkout…</>:"Continue to Secure Payment →"}
     </button>
-    <p style={{color:T.mut,fontSize:11,textAlign:"center",marginTop:10}}>You'll return here automatically after payment</p>
+    <p style={{color:T.mut,fontSize:11,textAlign:"center",marginTop:10}}>You will return here automatically after payment</p>
   </div>);
 }
 

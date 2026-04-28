@@ -359,7 +359,7 @@ function DesignSlot({num,total,planMax,design,onChange,products,loadingProducts}
                 {prod.colours.map(col=>{
                   const sel=(d.colours||[]).includes(col);
                   const colHex=hexMap[col]||"#888888";
-                  const isLight=["#FFFFFF","#E8DFD0","#C8C4BC","#E8D8C0","#F5F0E8"].includes(colHex);
+                  const isLightCanvas=["#FFFFFF","#E8DFD0","#C8C4BC","#E8D8C0","#F5F0E8"].includes(colHex);
                   // Try to map colour name to approximate hex
                   const hexMap={"White":"#FFFFFF","Black":"#1A1714","Navy":"#1B2A4A","Forest":"#2D4A35","Slate":"#6B7A8D","Bone":"#E8DFD0","Ash":"#C8C4BC","Clay":"#B5734A","Dusty Blue":"#7EA3B8","Washed Black":"#3A3735","Mauve":"#B8849A","Military Green":"#5C6B4A","Maroon":"#6B2035","Red":"#C0392B","Royal":"#2A5FA5","Khaki":"#8B7355","Stone":"#C0B89A","Faded Black":"#3D3535","Natural":"#E8D8C0","Lilac":"#C8A8C8","Sage":"#8B9E7E"};
                   const hex=hexMap[col]||"#888888";

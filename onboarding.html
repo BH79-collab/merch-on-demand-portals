@@ -35,7 +35,12 @@ window.mountCard=function(){
   var el=document.getElementById('sc-mount');
   if(!el)return;
   el.innerHTML='';
-  var c=_stripe.elements().create('card',{style:{base:{color:'#1A1714',fontFamily:'Segoe UI,sans-serif',fontSize:'15px','::placeholder':{color:'#8C8580'}},invalid:{color:'#D4521A'}}});
+  var elements=_stripe.elements({locale:'en',appearance:{theme:'none'}});
+  var c=elements.create('card',{
+    hidePostalCode:true,
+    disableLink:true,
+    style:{base:{color:'#1A1714',fontFamily:'Segoe UI,sans-serif',fontSize:'15px','::placeholder':{color:'#8C8580'}},invalid:{color:'#D4521A'}}
+  });
   c.mount('#sc-mount');
   c.on('change',function(e){_cardReady=!e.empty&&!e.error;window.dispatchEvent(new CustomEvent('sc_ready',{detail:_cardReady}));});
   _card=c;
@@ -74,8 +79,8 @@ const STEPS=[
   {id:"contact", label:"Contact", icon:"◎"},
   {id:"bank",    label:"Banking", icon:"⬡"},
   {id:"plan",    label:"Plan",    icon:"★"},
-  {id:"payment", label:"Pay",     icon:"💳"},
   {id:"design",  label:"Design",  icon:"✦"},
+  {id:"payment", label:"Pay",     icon:"💳"},
   {id:"review",  label:"Review",  icon:"◈"},
 ];
 

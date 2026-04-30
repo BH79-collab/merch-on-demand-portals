@@ -3,14 +3,14 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Merch on Demand — Customer Application</title>
+<title>Merch on Demand — Vendor Application</title>
 <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{background:#0A0A0A;font-family:'Segoe UI',sans-serif;color:#FFFFFF}
+body{background:#FAF8F4;font-family:'Segoe UI',sans-serif;color:#1A1714}
 @keyframes spin{to{transform:rotate(360deg)}}
 @keyframes fadein{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
 input,select,textarea,button{font-family:inherit}
@@ -56,8 +56,8 @@ const STEPS=[
   {id:"payment", label:"Pay",     icon:"💳"},
 ];
 
-const T={bg:"#0A0A0A",sur:"#161616",bdr:"#2A2A2A",ink:"#FFFFFF",mut:"#888888",fnt:"#1E1E1E",
-         acc:"#00AEEF",acbg:"#001E2E",acbdr:"#004466",grn:"#00AEEF",grnbg:"#001E2E"};
+const T={bg:"#FAF8F4",sur:"#FFFFFF",bdr:"#E8E4DC",ink:"#1A1714",mut:"#8C8580",fnt:"#F0EDE8",
+         acc:"#D4521A",acbg:"#FDF1EB",acbdr:"#F0C4A8",grn:"#2A7A4B",grnbg:"#EBF5EF"};
 
 const {useState,useRef,useEffect,useCallback}=React;
 
@@ -358,17 +358,15 @@ function DesignSlot({num,total,planMax,design,onChange,products,loadingProducts}
               <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
                 {prod.colours.map(col=>{
                   const sel=(d.colours||[]).includes(col);
-                  const colHex=hexMap[col]||"#888888";
-                  const isLightCanvas=["#FFFFFF","#E8DFD0","#C8C4BC","#E8D8C0","#F5F0E8"].includes(colHex);
                   // Try to map colour name to approximate hex
                   const hexMap={"White":"#FFFFFF","Black":"#1A1714","Navy":"#1B2A4A","Forest":"#2D4A35","Slate":"#6B7A8D","Bone":"#E8DFD0","Ash":"#C8C4BC","Clay":"#B5734A","Dusty Blue":"#7EA3B8","Washed Black":"#3A3735","Mauve":"#B8849A","Military Green":"#5C6B4A","Maroon":"#6B2035","Red":"#C0392B","Royal":"#2A5FA5","Khaki":"#8B7355","Stone":"#C0B89A","Faded Black":"#3D3535","Natural":"#E8D8C0","Lilac":"#C8A8C8","Sage":"#8B9E7E"};
                   const hex=hexMap[col]||"#888888";
-                  const isLightSwatch=["#FFFFFF","#E8DFD0","#C8C4BC","#E8D8C0","#E8E4DC"].includes(hex);
+                  const isLight=["#FFFFFF","#E8DFD0","#C8C4BC","#E8D8C0","#E8E4DC"].includes(hex);
                   return(
                     <button key={col} onClick={()=>upd({colours:sel?(d.colours||[]).filter(c=>c!==col):[...(d.colours||[]),col]})}
                       title={col}
                       style={{display:"flex",alignItems:"center",gap:6,padding:"5px 10px",background:sel?T.ink:T.fnt,border:`1.5px solid ${sel?T.ink:T.bdr}`,borderRadius:99,cursor:"pointer",transition:"all 0.15s"}}>
-                      <div style={{width:14,height:14,borderRadius:"50%",background:hex,border:isLightSwatch?"1px solid #ccc":"none",flexShrink:0}}/>
+                      <div style={{width:14,height:14,borderRadius:"50%",background:hex,border:isLight?"1px solid #ccc":"none",flexShrink:0}}/>
                       <span style={{fontSize:11,fontWeight:sel?700:500,color:sel?"white":T.mut}}>{col}</span>
                     </button>
                   );
@@ -391,7 +389,107 @@ function DesignSlot({num,total,planMax,design,onChange,products,loadingProducts}
             </div>
           )}
 
-          
+          {/* Notes */}
+          <div>
+            <Label c="Design Notes"/>
+            <textarea value={d.notes||""} onChange={e=>upd({notes:e.target.value})}
+              placeholder="Any special instructions for this product…" rows={2}
+              style={{width:"100%",padding:"10px 14px",background:T.sur,border:`1.5px solid ${T.bdr}`,borderRadius:10,fontSize:13,color:T.ink,fontFamily:"inherit",outline:"none",resize:"none",boxSizing:"border-box",lineHeight:1.6}}
+              onFocus={e=>e.target.style.borderColor=T.acc} onBlur={e=>e.target.style.borderColor=T.bdr}/>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ── STEP: BRAND ───────────────────────────────────────────────────────────────
+function StepBrand({d,set}){
+  const s=k=>v=>set(x=>({...x,[k]:v}));
+  return(<div>
+    <SHdr title="Your Brand" sub="Tell us about the brand you are bringing to Merch on Demand."/>
+    <Inp label="Brand Name" req val={d.brandName} set={s("brandName")} ph="e.g. Rivera Designs"/>
+    <Inp label="Tagline" val={d.tagline} set={s("tagline")} ph="Bold streetwear for everyday people" hint="Under 10 words — shown on your store page."/>
+    <div style={{marginBottom:22}}>
+      <Label c="Category"/>
+      <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+        {["Fashion","Music","Sports","Art","Gaming","Lifestyle","Business","Other"].map(cat=>{
+          const a=d.category===cat;
+          return <button key={cat} onClick={()=>set(x=>({...x,category:cat}))} style={{padding:"8px 16px",background:a?T.ink:T.fnt,border:`1.5px solid ${a?T.ink:T.bdr}`,borderRadius:99,fontSize:12,fontWeight:600,color:a?"white":T.mut,cursor:"pointer"}}>{cat}</button>;
+        })}
+      </div>
+    </div>
+  </div>);
+}
+
+// ── STEP: CONTACT ─────────────────────────────────────────────────────────────
+function StepContact({d,set}){
+  const s=k=>v=>set(x=>({...x,[k]:v}));
+  return(<div>
+    <SHdr title="Contact Details" sub="Your personal details for account management and payout notifications."/>
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 14px"}}>
+      <Inp label="First Name" req val={d.firstName} set={s("firstName")} ph="Jake"/>
+      <Inp label="Last Name"  req val={d.lastName}  set={s("lastName")}  ph="Rivera"/>
+    </div>
+    <Inp label="Email" req type="email" val={d.email} set={s("email")} ph="jake@riveradesigns.com"/>
+    <Inp label="Phone" req type="tel"   val={d.phone} set={s("phone")} ph="+61 4XX XXX XXX"/>
+    <div style={{height:1,background:T.bdr,margin:"6px 0 22px"}}/>
+    <p style={{fontFamily:"Georgia,serif",fontSize:17,fontWeight:700,color:T.ink,marginBottom:16}}>Business Address</p>
+    <Inp label="Street Address" req val={d.street}  set={s("street")}  ph="123 Main Street"/>
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 14px"}}>
+      <Inp label="Suburb / City" req val={d.suburb} set={s("suburb")} ph="Melbourne"/>
+      <Sel label="State" req val={d.state} set={s("state")} opts={["NSW","VIC","QLD","WA","SA","TAS","ACT","NT"]}/>
+    </div>
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 14px"}}>
+      <Inp label="Postcode" req val={d.postcode} set={s("postcode")} ph="3000"/>
+      <Sel label="Country" val={d.country} set={s("country")} opts={["Australia","New Zealand","United Kingdom","United States","Canada"]}/>
+    </div>
+  </div>);
+}
+
+// ── STEP: BANK ────────────────────────────────────────────────────────────────
+function StepBank({d,set}){
+  const s=k=>v=>set(x=>({...x,[k]:v}));
+  return(<div>
+    <SHdr title="Banking Details" sub="Used to send your monthly payouts. Encrypted and never shared."/>
+    <div style={{background:T.acbg,border:`1.5px solid ${T.acbdr}`,borderRadius:12,padding:14,marginBottom:22}}>
+      <p style={{color:T.acc,fontSize:12,fontWeight:700,marginBottom:4}}>🔒 Secure & Private</p>
+      <p style={{color:T.mut,fontSize:12,lineHeight:1.6}}>Used solely for monthly payout transfers via ABA Direct Entry.</p>
+    </div>
+    <Inp label="Bank Name" req val={d.bank} set={s("bank")} ph="e.g. Commonwealth Bank"/>
+    <Inp label="Account Name" req val={d.accountName} set={s("accountName")} ph="Must match your bank account exactly" hint="Use the exact name as it appears on your account."/>
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 14px"}}>
+      <Inp label="BSB" req val={d.bsb} set={s("bsb")} ph="062-000" hint="Format XXX-XXX" mono/>
+      <Inp label="Account Number" req val={d.accountNumber} set={s("accountNumber")} ph="12345678" mono/>
+    </div>
+  </div>);
+}
+
+// ── STEP: PLAN ────────────────────────────────────────────────────────────────
+function StepPlan({sel,onSel}){
+  return(<div>
+    <SHdr title="Choose Your Plan" sub="Select the plan that best fits your brand. Upgrade any time."/>
+    <div style={{display:"flex",flexDirection:"column",gap:14}}>
+      {PLANS.map(plan=>{
+        const active=sel===plan.id;
+        return(<div key={plan.id} onClick={()=>onSel(plan.id)}
+          style={{border:`2px solid ${active?plan.col:T.bdr}`,borderRadius:16,padding:20,cursor:"pointer",background:active?"rgba(0,0,0,0.01)":T.sur,position:"relative"}}>
+          {plan.badge&&<div style={{position:"absolute",top:-1,right:16,background:plan.col,color:"white",fontSize:9,fontWeight:800,padding:"3px 10px",borderRadius:"0 0 8px 8px",letterSpacing:"0.1em"}}>{plan.badge}</div>}
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12}}>
+            <div style={{display:"flex",alignItems:"center",gap:10}}>
+              <div style={{width:20,height:20,borderRadius:"50%",border:`2.5px solid ${active?plan.col:T.bdr}`,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                {active&&<div style={{width:10,height:10,borderRadius:"50%",background:plan.col}}/>}
+              </div>
+              <div>
+                <p style={{fontFamily:"Georgia,serif",fontSize:19,fontWeight:700,color:T.ink}}>{plan.name}</p>
+                <p style={{color:plan.col,fontSize:13,fontWeight:700}}>${plan.payout}/item · up to {plan.max===999?"unlimited":plan.max} products</p>
+              </div>
+            </div>
+            <div style={{textAlign:"right"}}>
+              <p style={{fontFamily:"Georgia,serif",fontSize:26,fontWeight:900,color:plan.col,lineHeight:1}}>${plan.price}</p>
+              <p style={{color:T.mut,fontSize:11}}>/month</p>
+            </div>
+          </div>
           <div style={{display:"flex",flexDirection:"column",gap:5}}>
             {plan.features.map(f=><div key={f} style={{display:"flex",alignItems:"flex-start",gap:8}}><span style={{color:plan.col,fontSize:13,flexShrink:0}}>✓</span><p style={{color:T.mut,fontSize:13}}>{f}</p></div>)}
           </div>
@@ -466,7 +564,7 @@ function StepReview({brand,contact,bank,planId,slots,products}){
   const S=({t,ch})=><div style={{marginBottom:20}}><p style={{fontFamily:"Georgia,serif",fontSize:15,fontWeight:700,color:T.ink,marginBottom:10,paddingBottom:8,borderBottom:`1.5px solid ${T.bdr}`}}>{t}</p>{ch}</div>;
   return(<div>
     <SHdr title="Review & Submit" sub="Check everything looks right before submitting."/>
-    <S t="Brand"><R l="Brand" v={brand.brandName}/><R l="Category" v={brand.category}/></S>
+    <S t="Brand"><R l="Brand" v={brand.brandName}/><R l="Tagline" v={brand.tagline}/><R l="Category" v={brand.category}/></S>
     <S t="Contact"><R l="Name" v={`${contact.firstName} ${contact.lastName}`}/><R l="Email" v={contact.email}/><R l="Phone" v={contact.phone}/><R l="Address" v={[contact.street,contact.suburb,contact.state,contact.postcode].filter(Boolean).join(", ")}/></S>
     <S t="Banking"><R l="Bank" v={bank.bank}/><R l="Account Name" v={bank.accountName}/><R l="BSB" v={bank.bsb}/><R l="Account No." v={bank.accountNumber?`••••${bank.accountNumber.slice(-4)}`:""}/></S>
     <S t="Subscription">{plan&&<div style={{background:T.fnt,borderRadius:12,padding:14}}><div style={{display:"flex",justifyContent:"space-between"}}><p style={{fontWeight:700,color:T.ink}}>{plan.name} Plan</p><p style={{color:plan.col,fontWeight:900,fontSize:18,fontFamily:"Georgia,serif"}}>${plan.price}/mo</p></div><p style={{color:T.mut,fontSize:12,marginTop:4}}>${plan.payout} per item · up to {plan.max===999?"unlimited":plan.max} products</p></div>}</S>
@@ -539,7 +637,7 @@ function App(){
   useEffect(()=>{
     const params=new URLSearchParams(window.location.search);
     if(params.get("checkout")==="success"){
-      const saved=localStorage.getItem("mod_vendor");
+      const saved=sessionStorage.getItem("mod_vendor");
       if(saved){
         const v=JSON.parse(saved);
         const plan=planOf(v.planId);
@@ -556,7 +654,7 @@ function App(){
             sb.from("subscriptions").insert({vendor_id:result.data.id,plan:v.planId,price:plan.price,payout_rate:plan.payout,status:"active",stripe_subscription_id:params.get("session_id")});
           }
         });
-        localStorage.removeItem("mod_vendor");
+        sessionStorage.removeItem("mod_vendor");
         setBrand(v.brand);setPlanId(v.planId);
       }
       setDone(true);
@@ -590,7 +688,7 @@ function App(){
     setCheckoutLoading(true);setCheckoutErr("");
     try{
       const vendorData={brand,contact,bank,planId,slots};
-      localStorage.setItem("mod_vendor",JSON.stringify(vendorData));
+      sessionStorage.setItem("mod_vendor",JSON.stringify(vendorData));
       const baseUrl=window.location.origin+window.location.pathname;
       const res=await fetch(PROXY+"/stripe/checkout",{
         method:"POST",
@@ -601,24 +699,7 @@ function App(){
           cancelUrl:baseUrl+"?checkout=cancel",
           email:contact.email,
           name:contact.firstName+" "+contact.lastName,
-          metadata:{
-            planId:planId,
-            vendorName:brand.brandName,
-            firstName:contact.firstName,
-            lastName:contact.lastName,
-            phone:contact.phone,
-            street:contact.street,
-            suburb:contact.suburb,
-            state:contact.state,
-            postcode:contact.postcode,
-            country:contact.country||"Australia",
-            bankName:bank.bank,
-            bsb:bank.bsb,
-            accountNumber:bank.accountNumber,
-            accountName:bank.accountName,
-            category:brand.category||"",
-            productSlots:JSON.stringify(slots).slice(0,490),
-          },
+          metadata:{planId:planId,vendorName:brand.brandName},
         }),
       });
       const data=await res.json();
@@ -635,8 +716,10 @@ function App(){
 
   return(<div style={{background:T.bg,minHeight:"100vh"}}>
     <div style={{background:T.sur,borderBottom:`1.5px solid ${T.bdr}`,padding:"14px 24px",display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:50}}>
-      <p style={{color:T.mut,fontSize:11,fontWeight:600}}>Customer Application</p>
-
+      <div>
+        <p style={{fontFamily:"Georgia,serif",fontWeight:900,fontSize:17,color:T.ink}}>Merch on Demand</p>
+        <p style={{color:T.mut,fontSize:10,fontWeight:500}}>Vendor Application</p>
+      </div>
       <div style={{background:T.acbg,border:`1.5px solid ${T.acbdr}`,borderRadius:99,padding:"4px 14px"}}>
         <span style={{color:T.acc,fontSize:11,fontWeight:700}}>Step {idx+1} of {STEPS.length}</span>
       </div>

@@ -194,9 +194,12 @@ function VendorPortal({session,onLogout}){
   const[orders,setOrders]=useState([]);
   const[payments,setPayments]=useState([]);
   const[planModal,setPlanModal]=useState(false);
-  const[stripeModal,setStripeModal]=useState(null); // planId to subscribe to
+  const[stripeModal,setStripeModal]=useState(null);
   const[loading,setLoading]=useState(true);
   const[toast,setToast]=useState(null);
+  const[editing,setEditing]=useState(false);
+  const[editForm,setEditForm]=useState({});
+  const[saving,setSaving]=useState(false);
 
   const showToast=(msg,type="success")=>{setToast({msg,type});setTimeout(()=>setToast(null),3000);};
 
@@ -238,6 +241,30 @@ function VendorPortal({session,onLogout}){
   const monthItems=monthOrders.reduce((s,o)=>s+(o.quantity||0),0);
   const monthPayout=monthItems*(vendor.payout_rate||10);
   const monthRev=monthOrders.reduce((s,o)=>s+(o.revenue||0),0);
+
+  const saveProfile=async()=>{
+    setSaving(true);
+    try{
+      await sb.from("vendors").update({
+        phone:editForm.phone||vendor.phone,
+        address:[editForm.street,editForm.suburb,editForm.state,editForm.postcode,"Australia"].filter(Boolean).join(", "),
+        bank:editForm.bank||vendor.bank,
+        bsb:editForm.bsb||vendor.bsb,
+        account_number:editForm.accountNumber||vendor.account_number,
+        account_name:editForm.accountName||vendor.account_name,
+      }).eq("id",vendor.id);
+      setVendor(v=>({...v,
+        phone:editForm.phone||v.phone,
+        bank:editForm.bank||v.bank,
+        bsb:editForm.bsb||v.bsb,
+        account_number:editForm.accountNumber||v.account_number,
+        account_name:editForm.accountName||v.account_name,
+      }));
+      setEditing(false);
+      showToast("Profile updated");
+    }catch(e){showToast("Error saving: "+e.message,"error");}
+    finally{setSaving(false);}
+  };
 
   const NAV=[["dashboard","Overview","◈"],["sales","Sales","◆"],["payouts","Payouts","⬡"],["myplan","My Plan","★"],["settings","Settings","◎"]];
 
@@ -351,16 +378,66 @@ function VendorPortal({session,onLogout}){
 
         {view==="settings"&&(
           <div style={{display:"flex",flexDirection:"column",gap:14}}>
-            <p style={{color:S.text,fontWeight:900,fontSize:20,fontFamily:"monospace"}}>Settings</p>
-            {[{s:"Profile",r:[["Brand",vendor.brand_name],["Name",vendor.name],["Email",vendor.email],["Phone",vendor.phone]]},
-              {s:"Address",r:[["Address",vendor.address]]},
-              {s:"Banking",r:[["Bank",vendor.bank],["BSB",vendor.bsb],["Account",vendor.account_number?`••••${vendor.account_number.slice(-4)}`:"—"]]}
-            ].map(({s,r})=>(
-              <Card key={s}>
-                <p style={{fontWeight:700,color:S.text,marginBottom:10}}>{s}</p>
-                {r.map(([l,v])=><RowItem key={l} label={l} value={v||"—"}/>)}
-              </Card>
-            ))}
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <p style={{color:S.text,fontWeight:900,fontSize:20,fontFamily:"monospace"}}>Settings</p>
+              {!editing&&<button onClick={()=>{setEditForm({phone:vendor.phone,bank:vendor.bank,bsb:vendor.bsb,accountNumber:vendor.account_number,accountName:vendor.account_name});setEditing(true);}} style={{background:S.accent,border:"none",borderRadius:8,padding:"7px 14px",color:"#000",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>✏ Edit Details</button>}
+            </div>
+
+            {/* Profile - read only */}
+            <Card>
+              <p style={{fontWeight:700,color:S.text,marginBottom:10}}>Profile</p>
+              <RowItem label="Brand" value={vendor.brand_name}/>
+              <RowItem label="Name" value={vendor.name}/>
+              <RowItem label="Email" value={vendor.email}/>
+              {!editing&&<RowItem label="Phone" value={vendor.phone||"—"}/>}
+              {editing&&<div style={{marginTop:8}}><p style={{color:S.muted,fontSize:11,marginBottom:4}}>PHONE</p><input value={editForm.phone||""} onChange={e=>setEditForm(f=>({...f,phone:e.target.value}))} placeholder="+61 4XX XXX XXX" style={{width:"100%",background:S.input,border:`1px solid ${S.border}`,borderRadius:8,padding:"8px 12px",color:S.text,fontFamily:"inherit",fontSize:13}}/></div>}
+            </Card>
+
+            {/* Banking */}
+            <Card>
+              <p style={{fontWeight:700,color:S.text,marginBottom:10}}>Banking Details</p>
+              {!editing&&(
+                <>
+                  <RowItem label="Bank" value={vendor.bank||"Not set"}/>
+                  <RowItem label="Account Name" value={vendor.account_name||"Not set"}/>
+                  <RowItem label="BSB" value={vendor.bsb||"Not set"}/>
+                  <RowItem label="Account No." value={vendor.account_number?`••••${vendor.account_number.slice(-4)}`:"Not set"}/>
+                </>
+              )}
+              {editing&&(
+                <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                  {[["bank","Bank Name","e.g. Commonwealth Bank"],["accountName","Account Name","Must match exactly"],["bsb","BSB","062-000"],["accountNumber","Account Number","12345678"]].map(([k,label,ph])=>(
+                    <div key={k}>
+                      <p style={{color:S.muted,fontSize:11,marginBottom:4}}>{label.toUpperCase()}</p>
+                      <input value={editForm[k]||""} onChange={e=>setEditForm(f=>({...f,[k]:e.target.value}))} placeholder={ph} style={{width:"100%",background:S.input,border:`1px solid ${S.border}`,borderRadius:8,padding:"8px 12px",color:S.text,fontFamily:"inherit",fontSize:13}}/>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Card>
+
+            {/* Address */}
+            <Card>
+              <p style={{fontWeight:700,color:S.text,marginBottom:10}}>Business Address</p>
+              {!editing&&<RowItem label="Address" value={vendor.address||"Not set"}/>}
+              {editing&&(
+                <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                  {[["street","Street","123 Main Street"],["suburb","Suburb","Melbourne"],["state","State","VIC"],["postcode","Postcode","3000"]].map(([k,label,ph])=>(
+                    <div key={k}>
+                      <p style={{color:S.muted,fontSize:11,marginBottom:4}}>{label.toUpperCase()}</p>
+                      <input value={editForm[k]||""} onChange={e=>setEditForm(f=>({...f,[k]:e.target.value}))} placeholder={ph} style={{width:"100%",background:S.input,border:`1px solid ${S.border}`,borderRadius:8,padding:"8px 12px",color:S.text,fontFamily:"inherit",fontSize:13}}/>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Card>
+
+            {editing&&(
+              <div style={{display:"flex",gap:10}}>
+                <button onClick={()=>setEditing(false)} style={{flex:1,padding:"11px",background:"none",border:`1px solid ${S.border}`,borderRadius:10,color:S.muted,fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>Cancel</button>
+                <button onClick={saveProfile} disabled={saving} style={{flex:2,padding:"11px",background:S.green,border:"none",borderRadius:10,color:"#000",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>{saving?"Saving…":"Save Changes"}</button>
+              </div>
+            )}
           </div>
         )}
 
@@ -415,8 +492,14 @@ function AdminPortal({onLogout}){
   };
 
   const setStatus=async(vid,status)=>{
-    await sb.from("vendors").update({status}).eq("id",vid);
-    setVendors(vs=>vs.map(v=>v.id===vid?{...v,status}:v));
+    const vendor=vendors.find(v=>v.id===vid);
+    const update={status};
+    // Auto-populate collection_name from brand_name on activation
+    if(status==="active"&&vendor&&vendor.brand_name){
+      update.collection_name=vendor.brand_name;
+    }
+    await sb.from("vendors").update(update).eq("id",vid);
+    setVendors(vs=>vs.map(v=>v.id===vid?{...v,...update}:v));
     showToast(`Vendor ${status}`);
   };
 

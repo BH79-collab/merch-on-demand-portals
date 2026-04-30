@@ -637,7 +637,7 @@ function App(){
   useEffect(()=>{
     const params=new URLSearchParams(window.location.search);
     if(params.get("checkout")==="success"){
-      const saved=localStorage.getItem("mod_vendor");
+      const saved=sessionStorage.getItem("mod_vendor");
       if(saved){
         const v=JSON.parse(saved);
         const plan=planOf(v.planId);
@@ -654,7 +654,7 @@ function App(){
             sb.from("subscriptions").insert({vendor_id:result.data.id,plan:v.planId,price:plan.price,payout_rate:plan.payout,status:"active",stripe_subscription_id:params.get("session_id")});
           }
         });
-        localStorage.removeItem("mod_vendor");
+        sessionStorage.removeItem("mod_vendor");
         setBrand(v.brand);setPlanId(v.planId);
       }
       setDone(true);
@@ -688,7 +688,7 @@ function App(){
     setCheckoutLoading(true);setCheckoutErr("");
     try{
       const vendorData={brand,contact,bank,planId,slots};
-      localStorage.setItem("mod_vendor",JSON.stringify(vendorData));
+      sessionStorage.setItem("mod_vendor",JSON.stringify(vendorData));
       const baseUrl=window.location.origin+window.location.pathname;
       const res=await fetch(PROXY+"/stripe/checkout",{
         method:"POST",

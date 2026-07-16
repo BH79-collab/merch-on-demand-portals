@@ -525,7 +525,7 @@ function AdminPortal({onLogout}){
 
   const vd=detail?vendors.find(v=>v.id===detail):null;
 
-  const NAV=[["dashboard","Dashboard","◈"],["vendors","Vendors","⬡"],["payments","Payments","◆"],["orders","Orders","◎"],["plans","Plans","★"]];
+  const NAV=[["dashboard","Dashboard","◈"],["vendors","Vendors","⬡"],["payments","Payments","◆"],["orders","Orders","◎"],["plans","Plans","★"],["printzones","Print Zones","▦"]];
 
   if(loading)return<div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",background:S.bg}}><Spin/></div>;
 
@@ -714,9 +714,203 @@ function AdminPortal({onLogout}){
           </div>
         )}
 
+        {view==="printzones"&&<PrintZoneEditor/>}
+
       </div>
 
       {planModal&&<PlanModal vendor={vendors.find(v=>v.id===planModal)} onSave={(pid)=>savePlan(planModal,pid)} onClose={()=>setPlanModal(null)}/>}
+    </div>
+  );
+}
+
+// ── Print Zone Editor ─────────────────────────────────────────────────────────
+const DEFAULT_PRINT_ZONE = {x:40, y:30, w:120, h:150};
+
+function ZoneCanvas({image, zone, onChange}) {
+  const svgRef = React.useRef();
+  const drag = React.useRef(null);
+  const resize = React.useRef(null);
+
+  const getScale = () => {
+    if (!svgRef.current) return {sx:1,sy:1};
+    const r = svgRef.current.getBoundingClientRect();
+    return {sx:r.width/200, sy:r.height/220};
+  };
+  const clientXY = e => e.touches ? [e.touches[0].clientX, e.touches[0].clientY] : [e.clientX, e.clientY];
+
+  const startDrag = e => {
+    e.preventDefault(); e.stopPropagation();
+    const {sx,sy} = getScale();
+    const [cx,cy] = clientXY(e);
+    drag.current = {mx:cx, my:cy, lx:zone.x*sx, ly:zone.y*sy};
+    const move = ev => {
+      if (!drag.current) return;
+      const [ex,ey] = clientXY(ev);
+      const {sx:sx2,sy:sy2} = getScale();
+      let nx = (drag.current.lx + (ex-drag.current.mx)) / sx2;
+      let ny = (drag.current.ly + (ey-drag.current.my)) / sy2;
+      nx = Math.max(0, Math.min(200-zone.w, nx));
+      ny = Math.max(0, Math.min(220-zone.h, ny));
+      onChange({...zone, x:Math.round(nx), y:Math.round(ny)});
+    };
+    const up = () => { drag.current=null; window.removeEventListener("mousemove",move); window.removeEventListener("mouseup",up); window.removeEventListener("touchmove",move); window.removeEventListener("touchend",up); };
+    window.addEventListener("mousemove",move); window.addEventListener("mouseup",up);
+    window.addEventListener("touchmove",move,{passive:false}); window.addEventListener("touchend",up);
+  };
+
+  const startResize = e => {
+    e.preventDefault(); e.stopPropagation();
+    const {sx,sy} = getScale();
+    const [cx,cy] = clientXY(e);
+    resize.current = {mx:cx, my:cy, lw:zone.w*sx, lh:zone.h*sy};
+    const move = ev => {
+      if (!resize.current) return;
+      const [ex,ey] = clientXY(ev);
+      const {sx:sx2,sy:sy2} = getScale();
+      let nw = (resize.current.lw + (ex-resize.current.mx)) / sx2;
+      let nh = (resize.current.lh + (ey-resize.current.my)) / sy2;
+      nw = Math.max(10, Math.min(200-zone.x, nw));
+      nh = Math.max(10, Math.min(220-zone.y, nh));
+      onChange({...zone, w:Math.round(nw), h:Math.round(nh)});
+    };
+    const up = () => { resize.current=null; window.removeEventListener("mousemove",move); window.removeEventListener("mouseup",up); window.removeEventListener("touchmove",move); window.removeEventListener("touchend",up); };
+    window.addEventListener("mousemove",move); window.addEventListener("mouseup",up);
+    window.addEventListener("touchmove",move,{passive:false}); window.addEventListener("touchend",up);
+  };
+
+  return (
+    <svg ref={svgRef} viewBox="0 0 200 220" style={{width:"100%",maxWidth:320,display:"block",background:"#1A1A1A",borderRadius:8}}>
+      {image ? (
+        <image href={image} x="10" y="10" width="180" height="200" preserveAspectRatio="xMidYMid meet"/>
+      ) : (
+        <text x="100" y="110" textAnchor="middle" fontSize="10" fill="#71717a">No product photo</text>
+      )}
+      <rect x={zone.x} y={zone.y} width={zone.w} height={zone.h} fill="rgba(139,92,246,0.12)" stroke={S.accent} strokeWidth="1.5" strokeDasharray="5,3" rx="2" style={{cursor:"move"}} onMouseDown={startDrag} onTouchStart={startDrag}/>
+      <rect x={zone.x+zone.w-10} y={zone.y+zone.h-10} width="12" height="12" fill={S.accent} rx="2" style={{cursor:"se-resize"}} onMouseDown={startResize} onTouchStart={startResize}/>
+    </svg>
+  );
+}
+
+function PrintZoneEditor(){
+  const [products, setProducts] = useState([]);
+  const [zones, setZones] = useState({}); // `${productId}:${side}` -> {x,y,w,h}
+  const [loading, setLoading] = useState(true);
+  const [selectedId, setSelectedId] = useState(null);
+  const [side, setSide] = useState("front");
+  const [saving, setSaving] = useState(false);
+  const [toast, setToast] = useState(null);
+
+  const showToast = msg => { setToast(msg); setTimeout(()=>setToast(null),2500); };
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    const [prodJson, zoneRes] = await Promise.all([
+      fetch(PROXY + "/shopify/products").then(r=>r.json()),
+      sb.from("print_zones").select("*"),
+    ]);
+    const prods = (prodJson.data?.products?.edges || []).map(({node:p}) => ({
+      id: p.id, name: p.title,
+      frontImage: p.images.edges[0]?.node?.url || null,
+      backImage:  p.images.edges[1]?.node?.url || p.images.edges[0]?.node?.url || null,
+    }));
+    setProducts(prods);
+    const zmap = {};
+    (zoneRes.data || []).forEach(z => { zmap[`${z.product_id}:${z.side}`] = {x:z.x, y:z.y, w:z.w, h:z.h}; });
+    setZones(zmap);
+    setSelectedId(cur => cur || prods[0]?.id || null);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const product = products.find(p => p.id === selectedId);
+  const key = selectedId ? `${selectedId}:${side}` : null;
+  const zone = key ? (zones[key] || DEFAULT_PRINT_ZONE) : DEFAULT_PRINT_ZONE;
+  const isCustom = !!(key && zones[key]);
+
+  const setZone = patch => {
+    if (!key) return;
+    setZones(z => ({...z, [key]: {...zone, ...patch}}));
+  };
+
+  const save = async () => {
+    if (!key) return;
+    setSaving(true);
+    const { error } = await sb.from("print_zones").upsert({
+      product_id: selectedId, side, x:zone.x, y:zone.y, w:zone.w, h:zone.h,
+    }, {onConflict:"product_id,side"});
+    setSaving(false);
+    showToast(error ? "Save failed: " + error.message : "Print zone saved");
+  };
+
+  const resetZone = async () => {
+    if (!key) return;
+    if (zones[key]) {
+      setSaving(true);
+      await sb.from("print_zones").delete().eq("product_id", selectedId).eq("side", side);
+      setSaving(false);
+    }
+    setZones(z => { const n = {...z}; delete n[key]; return n; });
+    showToast("Reset to default zone");
+  };
+
+  if (loading) return <div style={{display:"flex",alignItems:"center",justifyContent:"center",padding:60}}><Spin/></div>;
+
+  return (
+    <div style={{display:"flex",flexDirection:"column",gap:16}}>
+      {toast && <div style={{position:"fixed",top:16,left:"50%",transform:"translateX(-50%)",background:S.green,color:"#000",padding:"10px 20px",borderRadius:10,fontWeight:700,fontSize:13,zIndex:300}}>✓ {toast}</div>}
+      <div>
+        <p style={{fontFamily:"monospace",fontSize:22,fontWeight:900,color:S.text}}>Print Zones</p>
+        <p style={{color:S.muted,fontSize:12,marginTop:3}}>Drag and resize the box to set where logos can be placed on each product/side. Vendors see this exact zone during onboarding.</p>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"260px 1fr",gap:16}}>
+        <Card style={{maxHeight:560,overflowY:"auto",padding:10}}>
+          {products.map(p => (
+            <button key={p.id} onClick={()=>setSelectedId(p.id)}
+              style={{display:"flex",alignItems:"center",gap:8,width:"100%",padding:"8px 8px",background:selectedId===p.id?S.faint:"transparent",border:"none",borderRadius:8,cursor:"pointer",fontFamily:"inherit",textAlign:"left",marginBottom:2}}>
+              {p.frontImage ? <img src={p.frontImage} style={{width:28,height:28,objectFit:"cover",borderRadius:4,background:"#000"}}/> : <div style={{width:28,height:28,borderRadius:4,background:S.faint}}/>}
+              <span style={{color:selectedId===p.id?S.text:S.muted,fontSize:12,fontWeight:selectedId===p.id?700:500,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.name}</span>
+              {(zones[`${p.id}:front`]||zones[`${p.id}:back`]) && <span style={{marginLeft:"auto",width:6,height:6,borderRadius:"50%",background:S.green,flexShrink:0}}/>}
+            </button>
+          ))}
+        </Card>
+
+        <Card>
+          {!product ? <p style={{color:S.muted,fontSize:13}}>No products loaded.</p> : (
+            <div>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+                <p style={{color:S.text,fontWeight:700,fontSize:14}}>{product.name}</p>
+                <div style={{display:"flex",background:"rgba(255,255,255,0.03)",border:`1px solid ${S.border}`,borderRadius:10,padding:3}}>
+                  {["front","back"].map(s => (
+                    <button key={s} onClick={()=>setSide(s)} style={{padding:"6px 14px",border:"none",borderRadius:7,background:side===s?S.accent:"transparent",color:side===s?"#fff":S.muted,fontWeight:700,fontSize:11,cursor:"pointer",fontFamily:"inherit",textTransform:"uppercase"}}>{s}</button>
+                  ))}
+                </div>
+              </div>
+
+              <div style={{display:"flex",gap:20,flexWrap:"wrap"}}>
+                <div style={{flex:"0 0 auto",width:280}}>
+                  <ZoneCanvas image={side==="front"?product.frontImage:product.backImage} zone={zone} onChange={setZone}/>
+                  {isCustom ? <Tag color={S.green}>Custom zone saved</Tag> : <Tag color={S.muted}>Using default zone</Tag>}
+                </div>
+
+                <div style={{flex:"1 1 200px",minWidth:200}}>
+                  {[["x","X"],["y","Y"],["w","Width"],["h","Height"]].map(([k,label])=>(
+                    <div key={k} style={{marginBottom:12}}>
+                      <label style={{display:"block",fontSize:10,fontWeight:700,color:S.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:4}}>{label}</label>
+                      <input type="number" value={Math.round(zone[k])} onChange={e=>setZone({[k]:Number(e.target.value)||0})}
+                        style={{width:"100%",padding:"8px 10px",background:"rgba(255,255,255,0.05)",border:`1px solid ${S.border}`,borderRadius:8,color:S.text,fontSize:13,fontFamily:"monospace",outline:"none",boxSizing:"border-box"}}/>
+                    </div>
+                  ))}
+                  <div style={{display:"flex",gap:8,marginTop:8}}>
+                    <Btn onClick={save} disabled={saving} color={S.green}>{saving?<Spin/>:"Save Zone"}</Btn>
+                    <Btn onClick={resetZone} disabled={saving} outline color={S.muted}>Reset</Btn>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </Card>
+      </div>
     </div>
   );
 }

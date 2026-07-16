@@ -329,16 +329,16 @@ function StepPlan({selected, onSelect}) {
 }
 
 // ── DESIGN CANVAS ─────────────────────────────────────────────────────────────
-function Canvas({side, logo, placement, onPlacement, onLogo, product}) {
+function Canvas({side, logo, placement, printZone, onPlacement, onLogo, product}) {
   const svgRef = useRef();
   const drag = useRef(null);
   const resize = useRef(null);
 
-  // Generic centered print zone — product photos vary in framing (flat lay,
-  // mannequin, model), so this can't be calibrated to a specific garment shape
-  // the way the old hand-drawn silhouette was. Wide enough to work reasonably
-  // across most product shots while still giving a visual placement guide.
-  const pz = {x:40, y:30, w:120, h:150};
+  // Admin-configured zone (Print Zones tab in the admin portal) when one
+  // exists for this product/side, otherwise a generic centered default —
+  // product photos vary in framing (flat lay, mannequin, model), so a fixed
+  // default can't be calibrated to every garment shape precisely.
+  const pz = printZone || {x:40, y:30, w:120, h:150};
   const pl = placement || {x:pz.x+pz.w*0.2, y:pz.y+pz.h*0.15, w:pz.w*0.6, h:pz.h*0.6};
 
   const getScale = () => {
@@ -433,7 +433,7 @@ function Canvas({side, logo, placement, onPlacement, onLogo, product}) {
 }
 
 // ── STEP: DESIGN ──────────────────────────────────────────────────────────────
-function StepDesign({planId, slots, setSlots, products, loadingProducts}) {
+function StepDesign({planId, slots, setSlots, products, loadingProducts, printZones}) {
   const plan = PLANS.find(p=>p.id===planId)||PLANS[0];
   const maxSlots = plan.max === 999 ? 10 : plan.max;
   const [numSlots, setNumSlots] = useState(Math.max(1, slots.filter(Boolean).length || 1));
@@ -508,9 +508,11 @@ function StepDesign({planId, slots, setSlots, products, loadingProducts}) {
                   onLogoloaded={e=>{updSlot(i,{[e.detail.side+"Logo"]:{url:e.detail.url,name:e.detail.name},[e.detail.side+"Pl"]:null});}}
                   onLogocleared={e=>{updSlot(i,{[e.detail.side+"Logo"]:null,[e.detail.side+"Pl"]:null});}}>
                   <Canvas side="front" logo={d.frontLogo} placement={d.frontPl} product={prod}
+                    printZone={printZones[`${prod.id}:front`]}
                     onPlacement={p=>updSlot(i,{frontPl:p})}
                     onLogo={l=>updSlot(i,{frontLogo:l})}/>
                   {!isCap && <Canvas side="back" logo={d.backLogo} placement={d.backPl} product={prod}
+                    printZone={printZones[`${prod.id}:back`]}
                     onPlacement={p=>updSlot(i,{backPl:p})}
                     onLogo={l=>updSlot(i,{backLogo:l})}/>}
                 </div>
@@ -643,6 +645,7 @@ function App() {
   const [checkoutErr, setCheckoutErr] = useState("");
   const [products, setProducts]       = useState([]);
   const [loadingProds, setLoadingProds] = useState(true);
+  const [printZones, setPrintZones]   = useState({});
 
   const [brand,   setBrand]   = useState({brandName:"", category:""});
   const [contact, setContact] = useState({firstName:"", lastName:"", email:"", phone:"", password:"", confirmPassword:"", street:"", suburb:"", state:"", postcode:"", country:"Australia"});
@@ -655,6 +658,15 @@ function App() {
     fetchProducts()
       .then(p => { setProducts(p); setLoadingProds(false); })
       .catch(e => { console.warn("Products:", e.message); setLoadingProds(false); });
+  }, []);
+
+  // Load admin-configured print zones (falls back to the default zone per product/side if none saved)
+  useEffect(() => {
+    sb.from("print_zones").select("*").then(({data}) => {
+      const zmap = {};
+      (data || []).forEach(z => { zmap[`${z.product_id}:${z.side}`] = {x:z.x, y:z.y, w:z.w, h:z.h}; });
+      setPrintZones(zmap);
+    });
   }, []);
 
   // Handle Stripe Checkout return
@@ -784,7 +796,7 @@ function App() {
         {step==="contact" && <StepContact d={contact} set={setContact}/>}
         {step==="bank"    && <StepBank    d={bank}    set={setBank}/>}
         {step==="plan"    && <StepPlan    selected={planId} onSelect={setPlanId}/>}
-        {step==="design"  && <StepDesign  planId={planId} slots={slots} setSlots={setSlots} products={products} loadingProducts={loadingProds}/>}
+        {step==="design"  && <StepDesign  planId={planId} slots={slots} setSlots={setSlots} products={products} loadingProducts={loadingProds} printZones={printZones}/>}
         {step==="payment" && <StepPayment planId={planId} onCheckout={handleCheckout} loading={busy} error={checkoutErr}/>}
 
         {/* Navigation */}

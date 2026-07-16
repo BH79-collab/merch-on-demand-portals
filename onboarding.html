@@ -106,9 +106,15 @@ async function fetchProducts() {
       if (/colou?r/i.test(o.name)) o.values.forEach(v => colours[v] = 1);
       if (/size/i.test(o.name)) o.values.forEach(v => { if (!sizes.includes(v)) sizes.push(v); });
     });
+    const imgs = p.images.edges.map(e => e.node.url);
     return {
       id: p.id, name: p.title, category: p.productType || "",
-      image: p.images.edges[0]?.node?.url || null,
+      image: imgs[0] || null,
+      // Shopify doesn't tag which image is the "back" of a garment — this is a
+      // best-effort guess (2nd uploaded photo). Falls back to the front photo
+      // when a product only has one image.
+      frontImage: imgs[0] || null,
+      backImage:  imgs[1] || imgs[0] || null,
       colours: Object.keys(colours), sizes,
     };
   });
@@ -323,13 +329,17 @@ function StepPlan({selected, onSelect}) {
 }
 
 // ── DESIGN CANVAS ─────────────────────────────────────────────────────────────
-function Canvas({side, logo, placement, onPlacement, product}) {
+function Canvas({side, logo, placement, onPlacement, onLogo, product}) {
   const svgRef = useRef();
   const drag = useRef(null);
   const resize = useRef(null);
 
-  const pz = {x:62, y:side==="front"?55:50, w:76, h:90};
-  const pl = placement || {x:pz.x+pz.w*0.15, y:pz.y+pz.h*0.15, w:pz.w*0.7, h:pz.h*0.7};
+  // Generic centered print zone — product photos vary in framing (flat lay,
+  // mannequin, model), so this can't be calibrated to a specific garment shape
+  // the way the old hand-drawn silhouette was. Wide enough to work reasonably
+  // across most product shots while still giving a visual placement guide.
+  const pz = {x:40, y:30, w:120, h:150};
+  const pl = placement || {x:pz.x+pz.w*0.2, y:pz.y+pz.h*0.15, w:pz.w*0.6, h:pz.h*0.6};
 
   const getScale = () => {
     if (!svgRef.current) return {sx:1,sy:1};
@@ -377,20 +387,19 @@ function Canvas({side, logo, placement, onPlacement, product}) {
     window.addEventListener("touchmove",move,{passive:false}); window.addEventListener("touchend",up);
   };
 
-  const isHood = product && (product.category||"").toLowerCase().includes("hood");
-  const bodyPath = "M55,20 L30,45 L5,38 L18,80 L40,75 L40,205 L160,205 L160,75 L182,80 L195,38 L170,45 L145,20 C140,28 130,35 100,35 C70,35 60,28 55,20 Z";
+  const garmentImage = side === "front" ? product?.frontImage : product?.backImage;
 
   return (
     <div style={{flex:1}}>
       <p style={{textAlign:"center",fontSize:9,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:4}}>{side.toUpperCase()}</p>
       {!logo && <p style={{textAlign:"center",fontSize:10,color:T.accent,marginBottom:3}}>Click garment to upload</p>}
-      <svg ref={svgRef} viewBox="0 0 200 220" style={{width:"100%",display:"block",cursor:"pointer"}}
+      <svg ref={svgRef} viewBox="0 0 200 220" style={{width:"100%",display:"block",cursor:"pointer",background:"#1A1A1A",borderRadius:8}}
         onClick={()=>{ if(!logo) document.getElementById("upload-"+side).click(); }}>
-        <ellipse cx="100" cy="215" rx="70" ry="6" fill="rgba(0,0,0,0.3)"/>
-        <path d={bodyPath} fill="#333333" stroke="#444444" strokeWidth="1.5"/>
-        <path d="M55,20 C60,28 70,35 100,35 C130,35 140,28 145,20" fill="none" stroke="#444444" strokeWidth="2"/>
-        {isHood && <path d="M50,22 C45,10 65,2 100,2 C135,2 155,10 150,22 C145,15 130,8 100,8 C70,8 55,15 50,22 Z" fill="#333333" stroke="#444444" strokeWidth="1"/>}
-        {isHood && side==="front" && <rect x="65" y="155" width="70" height="40" rx="4" fill="rgba(0,0,0,0.2)"/>}
+        {garmentImage ? (
+          <image href={garmentImage} x="10" y="10" width="180" height="200" preserveAspectRatio="xMidYMid meet"/>
+        ) : (
+          <text x="100" y="110" textAnchor="middle" fontSize="10" fill={T.muted} fontFamily="Segoe UI,sans-serif">No product photo</text>
+        )}
         <rect x={pz.x} y={pz.y} width={pz.w} height={pz.h} fill="rgba(0,174,239,0.05)" stroke="rgba(0,174,239,0.4)" strokeWidth="1" strokeDasharray="5,3" rx="2"/>
         <text x={pz.x+pz.w/2} y={pz.y-3} textAnchor="middle" fontSize="7" fill="rgba(0,174,239,0.6)" fontFamily="Segoe UI,sans-serif">DTF ZONE</text>
         {logo ? (
@@ -408,14 +417,14 @@ function Canvas({side, logo, placement, onPlacement, product}) {
         const f = e.target.files[0];
         if (!f) return;
         const reader = new FileReader();
-        reader.onload = ev => document.getElementById("upload-"+side).dispatchEvent(new CustomEvent("logoloaded",{bubbles:true,detail:{url:ev.target.result,name:f.name,side}}));
+        reader.onload = ev => onLogo && onLogo({url:ev.target.result, name:f.name});
         reader.readAsDataURL(f);
         e.target.value="";
       }}/>
       {logo && (
         <div style={{marginTop:4,padding:"4px 8px",background:T.greenDim,borderRadius:6,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
           <p style={{color:T.green,fontSize:10,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1}}>{logo.name}</p>
-          <button onClick={()=>onPlacement&&document.getElementById("upload-"+side).dispatchEvent(new CustomEvent("logocleared",{bubbles:true,detail:{side}}))}
+          <button onClick={()=>onLogo && onLogo(null)}
             style={{background:"none",border:"none",color:T.muted,cursor:"pointer",fontSize:13,marginLeft:4}}>✕</button>
         </div>
       )}
@@ -434,17 +443,6 @@ function StepDesign({planId, slots, setSlots, products, loadingProducts}) {
     s[i] = {...(s[i]||{}), ...patch};
     setSlots(s);
   };
-
-  // Handle logo uploads via custom events
-  useEffect(() => {
-    const handleLoaded = e => {
-      const {url, name, side} = e.detail;
-      // Find which slot this belongs to by checking canvas IDs
-      // We use a simpler approach - store current slot index in a ref
-    };
-    document.addEventListener("logoloaded", handleLoaded);
-    return () => document.removeEventListener("logoloaded", handleLoaded);
-  }, []);
 
   return (
     <div className="fade">
@@ -510,9 +508,11 @@ function StepDesign({planId, slots, setSlots, products, loadingProducts}) {
                   onLogoloaded={e=>{updSlot(i,{[e.detail.side+"Logo"]:{url:e.detail.url,name:e.detail.name},[e.detail.side+"Pl"]:null});}}
                   onLogocleared={e=>{updSlot(i,{[e.detail.side+"Logo"]:null,[e.detail.side+"Pl"]:null});}}>
                   <Canvas side="front" logo={d.frontLogo} placement={d.frontPl} product={prod}
-                    onPlacement={p=>updSlot(i,{frontPl:p})}/>
+                    onPlacement={p=>updSlot(i,{frontPl:p})}
+                    onLogo={l=>updSlot(i,{frontLogo:l})}/>
                   {!isCap && <Canvas side="back" logo={d.backLogo} placement={d.backPl} product={prod}
-                    onPlacement={p=>updSlot(i,{backPl:p})}/>}
+                    onPlacement={p=>updSlot(i,{backPl:p})}
+                    onLogo={l=>updSlot(i,{backLogo:l})}/>}
                 </div>
                 <p style={{color:T.muted,fontSize:10,textAlign:"center",marginBottom:14}}>Click garment to upload logo. Drag to reposition. Drag corner to resize.</p>
 

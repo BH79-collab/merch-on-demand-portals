@@ -37,13 +37,40 @@ const PRICE_IDS    = {
   pro:     "price_1TPZq1LgoqGtM7YGtx7koBm2",
 };
 
+async function fetchProducts() {
+  const res = await fetch(PROXY + "/shopify/products");
+  if (!res.ok) throw new Error("Storefront API error " + res.status);
+  const json = await res.json();
+  if (json.errors) throw new Error(json.errors[0].message);
+  return (json.data.products.edges || []).map(({node:p}) => {
+    const colours = {}, sizes = [];
+    p.variants.edges.forEach(({node:v}) => {
+      v.selectedOptions.forEach(o => {
+        if (/colou?r/i.test(o.name)) colours[o.value] = 1;
+        if (/size/i.test(o.name) && !sizes.includes(o.value)) sizes.push(o.value);
+      });
+    });
+    (p.options || []).forEach(o => {
+      if (/colou?r/i.test(o.name)) o.values.forEach(v => colours[v] = 1);
+      if (/size/i.test(o.name)) o.values.forEach(v => { if (!sizes.includes(v)) sizes.push(v); });
+    });
+    const imgs = p.images.edges.map(e => e.node.url);
+    return {
+      id: p.id, name: p.title, category: p.productType || "",
+      frontImage: imgs[0] || null,
+      backImage:  imgs[1] || imgs[0] || null,
+      colours: Object.keys(colours), sizes,
+    };
+  });
+}
+
 // ── Plans ─────────────────────────────────────────────────────────────────────
 const PLANS = [
-  { id:"starter", name:"Starter", price:29.95, payout:10, col:"#4ADE80", badge:null,
+  { id:"starter", name:"Starter", price:29.95, payout:10, max:3, col:"#4ADE80", badge:null,
     features:["Up to 3 products","$10 per item sold","DTF print","Monthly payout","Email support"] },
-  { id:"growth",  name:"Growth",  price:59.95, payout:12, col:"#F0B429", badge:"POPULAR",
+  { id:"growth",  name:"Growth",  price:59.95, payout:12, max:10, col:"#F0B429", badge:"POPULAR",
     features:["Up to 10 products","$12 per item sold","DTF print","Priority payout","Full analytics","Priority support","Featured placement"] },
-  { id:"pro",     name:"Pro",     price:99.95, payout:15, col:"#A78BFA", badge:"BEST VALUE",
+  { id:"pro",     name:"Pro",     price:99.95, payout:15, max:999, col:"#A78BFA", badge:"BEST VALUE",
     features:["Unlimited products","$15 per item sold","DTF + Embroidery","Weekly payout","Advanced analytics","Dedicated manager","Homepage feature"] },
 ];
 const planOf = id => PLANS.find(p=>p.id===id)||PLANS[0];
@@ -186,6 +213,265 @@ function PlanModal({vendor,onSave,onClose}){
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
+// VENDOR PRODUCTS — logo placement canvas + editor
+// ══════════════════════════════════════════════════════════════════════════════
+function VendorCanvas({side, logo, placement, printZone, onPlacement, onLogo, product}) {
+  const svgRef = React.useRef();
+  const drag = React.useRef(null);
+  const resize = React.useRef(null);
+  const [uploading, setUploading] = useState(false);
+
+  const pz = printZone || {x:40, y:30, w:120, h:150};
+  const pl = placement || {x:pz.x+pz.w*0.2, y:pz.y+pz.h*0.15, w:pz.w*0.6, h:pz.h*0.6};
+
+  const getScale = () => {
+    if (!svgRef.current) return {sx:1,sy:1};
+    const r = svgRef.current.getBoundingClientRect();
+    return {sx:r.width/200, sy:r.height/220};
+  };
+  const clientXY = e => e.touches ? [e.touches[0].clientX, e.touches[0].clientY] : [e.clientX, e.clientY];
+
+  const startDrag = e => {
+    e.preventDefault(); e.stopPropagation();
+    const {sx,sy} = getScale();
+    const [cx,cy] = clientXY(e);
+    drag.current = {mx:cx, my:cy, lx:pl.x*sx, ly:pl.y*sy};
+    const move = ev => {
+      if (!drag.current) return;
+      const [ex,ey] = clientXY(ev);
+      const {sx:sx2,sy:sy2} = getScale();
+      let nx = (drag.current.lx + (ex-drag.current.mx)) / sx2;
+      let ny = (drag.current.ly + (ey-drag.current.my)) / sy2;
+      nx = Math.max(pz.x, Math.min(pz.x+pz.w-pl.w, nx));
+      ny = Math.max(pz.y, Math.min(pz.y+pz.h-pl.h, ny));
+      onPlacement({...pl, x:nx, y:ny});
+    };
+    const up = () => { drag.current=null; window.removeEventListener("mousemove",move); window.removeEventListener("mouseup",up); window.removeEventListener("touchmove",move); window.removeEventListener("touchend",up); };
+    window.addEventListener("mousemove",move); window.addEventListener("mouseup",up);
+    window.addEventListener("touchmove",move,{passive:false}); window.addEventListener("touchend",up);
+  };
+
+  const startResize = e => {
+    e.preventDefault(); e.stopPropagation();
+    const {sx} = getScale();
+    const [cx] = clientXY(e);
+    resize.current = {mx:cx, lw:pl.w*sx};
+    const move = ev => {
+      if (!resize.current) return;
+      const [ex] = clientXY(ev);
+      const {sx:sx2} = getScale();
+      let nw = (resize.current.lw + (ex-resize.current.mx)) / sx2;
+      nw = Math.max(10, Math.min(pz.x+pz.w-pl.x, nw));
+      onPlacement({...pl, w:nw, h:nw*(pl.h/pl.w)});
+    };
+    const up = () => { resize.current=null; window.removeEventListener("mousemove",move); window.removeEventListener("mouseup",up); window.removeEventListener("touchmove",move); window.removeEventListener("touchend",up); };
+    window.addEventListener("mousemove",move); window.addEventListener("mouseup",up);
+    window.addEventListener("touchmove",move,{passive:false}); window.addEventListener("touchend",up);
+  };
+
+  const garmentImage = side === "front" ? product?.frontImage : product?.backImage;
+
+  return (
+    <div style={{flex:1,minWidth:130}}>
+      <p style={{textAlign:"center",fontSize:9,fontWeight:700,color:S.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:4}}>{side.toUpperCase()}</p>
+      {!logo && <p style={{textAlign:"center",fontSize:10,color:S.accent,marginBottom:3}}>Click garment to upload</p>}
+      <svg ref={svgRef} viewBox="0 0 200 220" style={{width:"100%",display:"block",cursor:"pointer",background:"#1A1A1A",borderRadius:8}}
+        onClick={()=>{ if(!logo) document.getElementById("vp-upload-"+side+"-"+(product?.id||"")).click(); }}>
+        {garmentImage ? (
+          <image href={garmentImage} x="10" y="10" width="180" height="200" preserveAspectRatio="xMidYMid meet"/>
+        ) : (
+          <text x="100" y="110" textAnchor="middle" fontSize="10" fill={S.muted} fontFamily="Segoe UI,sans-serif">No product photo</text>
+        )}
+        <rect x={pz.x} y={pz.y} width={pz.w} height={pz.h} fill="rgba(139,92,246,0.05)" stroke="rgba(139,92,246,0.4)" strokeWidth="1" strokeDasharray="5,3" rx="2"/>
+        {logo ? (
+          <>
+            <image href={logo.url} x={pl.x} y={pl.y} width={pl.w} height={pl.h} preserveAspectRatio="xMidYMid meet" style={{cursor:"move"}} onMouseDown={startDrag} onTouchStart={startDrag}/>
+            <rect x={pl.x} y={pl.y} width={pl.w} height={pl.h} fill="none" stroke={S.accent} strokeWidth="1.5" strokeDasharray="4,2" rx="2" style={{pointerEvents:"none"}}/>
+            <rect x={pl.x+pl.w-9} y={pl.y+pl.h-9} width="11" height="11" fill={S.accent} rx="2" style={{cursor:"se-resize"}} onMouseDown={startResize} onTouchStart={startResize}/>
+          </>
+        ) : (
+          <text x={pz.x+pz.w/2} y={pz.y+pz.h/2+4} textAnchor="middle" fontSize="9" fill="rgba(139,92,246,0.5)" fontFamily="Segoe UI,sans-serif" fontWeight="600">Click to upload</text>
+        )}
+      </svg>
+      <input id={"vp-upload-"+side+"-"+(product?.id||"")} type="file" accept="image/*" style={{display:"none"}} onChange={async e=>{
+        const f = e.target.files[0];
+        if (!f) return;
+        e.target.value="";
+        setUploading(true);
+        const path = `${crypto.randomUUID()}-${f.name}`.replace(/[^A-Za-z0-9._-]/g, "_");
+        const { error } = await sb.storage.from("vendor-logos").upload(path, f);
+        setUploading(false);
+        if (error) { alert("Logo upload failed: " + error.message); return; }
+        const { data } = sb.storage.from("vendor-logos").getPublicUrl(path);
+        onLogo && onLogo({url: data.publicUrl, name: f.name});
+      }}/>
+      {uploading && <p style={{textAlign:"center",fontSize:10,color:S.muted,marginTop:3}}>Uploading...</p>}
+      {logo && (
+        <div style={{marginTop:4,padding:"4px 8px",background:"rgba(16,185,129,0.1)",borderRadius:6,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <p style={{color:S.green,fontSize:10,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1}}>{logo.name||"logo"}</p>
+          <button onClick={()=>onLogo && onLogo(null)} style={{background:"none",border:"none",color:S.muted,cursor:"pointer",fontSize:13,marginLeft:4}}>✕</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function VendorProductsEditor({vendor}) {
+  const [catalogue, setCatalogue] = useState([]);
+  const [items, setItems] = useState([]);
+  const [printZones, setPrintZones] = useState({});
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState({});
+  const [toast, setToast] = useState(null);
+
+  const showToast = msg => { setToast(msg); setTimeout(()=>setToast(null), 2500); };
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    const [prods, vpRes, zoneRes] = await Promise.all([
+      fetchProducts().catch(()=>[]),
+      sb.from("vendor_products").select("*").eq("vendor_id", vendor.id).order("created_at"),
+      sb.from("print_zones").select("*"),
+    ]);
+    setCatalogue(prods);
+    const zmap = {};
+    (zoneRes.data || []).forEach(z => { zmap[`${z.product_id}:${z.side}`] = {x:z.x, y:z.y, w:z.w, h:z.h}; });
+    setPrintZones(zmap);
+    setItems((vpRes.data || []).map(row => ({
+      localId: row.id, dbId: row.id, productId: row.product_id,
+      colours: row.colours || [], sizes: row.sizes || [],
+      frontLogo: row.front_logo_url ? {url: row.front_logo_url} : null,
+      backLogo:  row.back_logo_url  ? {url: row.back_logo_url}  : null,
+      frontPl: row.front_placement, backPl: row.back_placement,
+    })));
+    setLoading(false);
+  }, [vendor.id]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const plan = planOf(vendor.plan);
+  const maxSlots = plan.max || 3;
+
+  const updateItem = (localId, patch) => setItems(its => its.map(it => it.localId===localId ? {...it, ...patch} : it));
+
+  const addItem = () => {
+    if (items.length >= maxSlots) return;
+    setItems(its => [...its, {localId:"new-"+Date.now(), dbId:null, productId:"", colours:[], sizes:[], frontLogo:null, backLogo:null, frontPl:null, backPl:null}]);
+  };
+
+  const removeItem = async item => {
+    if (item.dbId) await sb.from("vendor_products").delete().eq("id", item.dbId);
+    setItems(its => its.filter(it => it.localId !== item.localId));
+    showToast("Product removed");
+  };
+
+  const saveItem = async item => {
+    if (!item.productId) return;
+    setSaving(s => ({...s, [item.localId]: true}));
+    const { data, error } = await sb.from("vendor_products").upsert({
+      vendor_id: vendor.id, product_id: item.productId,
+      colours: item.colours, sizes: item.sizes,
+      front_logo_url: item.frontLogo?.url || null, back_logo_url: item.backLogo?.url || null,
+      front_placement: item.frontPl, back_placement: item.backPl,
+    }, {onConflict:"vendor_id,product_id"}).select().single();
+    setSaving(s => ({...s, [item.localId]: false}));
+    if (error) { showToast("Save failed: " + error.message); return; }
+    updateItem(item.localId, {dbId: data.id});
+    showToast("Product saved");
+  };
+
+  if (loading) return <div style={{display:"flex",justifyContent:"center",padding:60}}><Spin/></div>;
+
+  return (
+    <div style={{display:"flex",flexDirection:"column",gap:14}}>
+      {toast && <div style={{position:"fixed",top:16,left:"50%",transform:"translateX(-50%)",background:S.green,color:"#000",padding:"10px 20px",borderRadius:10,fontWeight:700,fontSize:13,zIndex:300}}>{toast}</div>}
+      <div>
+        <p style={{color:S.text,fontWeight:900,fontSize:20,fontFamily:"monospace"}}>My Products</p>
+        <p style={{color:S.muted,fontSize:12,marginTop:2}}>{items.length} of {maxSlots===999?"unlimited":maxSlots} products used</p>
+      </div>
+
+      {items.map(item => {
+        const prod = catalogue.find(p => p.id === item.productId);
+        const isCap = prod && (prod.category||prod.name||"").toLowerCase().includes("cap");
+        return (
+          <Card key={item.localId}>
+            {!item.productId ? (
+              <div>
+                <p style={{color:S.text,fontWeight:700,marginBottom:10,fontSize:13}}>Choose a product</p>
+                {catalogue.length===0 ? <p style={{color:S.muted,fontSize:12}}>No products available.</p> : (
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,maxHeight:280,overflowY:"auto"}}>
+                    {catalogue.map(p => (
+                      <div key={p.id} onClick={()=>updateItem(item.localId,{productId:p.id, colours:[], sizes:[], frontLogo:null, backLogo:null, frontPl:null, backPl:null})}
+                        style={{cursor:"pointer",border:`1px solid ${S.border}`,borderRadius:10,padding:8,textAlign:"center"}}>
+                        {p.frontImage ? <img src={p.frontImage} style={{width:"100%",aspectRatio:"1",objectFit:"cover",borderRadius:6,marginBottom:6,background:"#000"}}/> : <div style={{width:"100%",aspectRatio:"1",background:S.faint,borderRadius:6,marginBottom:6}}/>}
+                        <p style={{color:S.text,fontSize:11,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.name}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {items.length>1 && <div style={{marginTop:10}}><Btn outline color={S.muted} small onClick={()=>removeItem(item)}>Cancel</Btn></div>}
+              </div>
+            ) : (
+              <div>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+                  <p style={{color:S.text,fontWeight:700,fontSize:13}}>{prod?.name || "Unknown product"}</p>
+                  <button onClick={()=>updateItem(item.localId,{productId:""})} style={{background:"none",border:`1px solid ${S.border}`,borderRadius:6,padding:"4px 8px",color:S.muted,fontSize:11,cursor:"pointer",fontFamily:"inherit"}}>Change</button>
+                </div>
+
+                <div style={{display:"flex",gap:14,flexWrap:"wrap",marginBottom:12}}>
+                  <VendorCanvas side="front" logo={item.frontLogo} placement={item.frontPl} product={prod}
+                    printZone={printZones[`${item.productId}:front`]}
+                    onPlacement={pl=>updateItem(item.localId,{frontPl:pl})}
+                    onLogo={l=>updateItem(item.localId,{frontLogo:l})}/>
+                  {!isCap && <VendorCanvas side="back" logo={item.backLogo} placement={item.backPl} product={prod}
+                    printZone={printZones[`${item.productId}:back`]}
+                    onPlacement={pl=>updateItem(item.localId,{backPl:pl})}
+                    onLogo={l=>updateItem(item.localId,{backLogo:l})}/>}
+                </div>
+
+                {prod && prod.colours.length>0 && (
+                  <div style={{marginBottom:10}}>
+                    <p style={{color:S.muted,fontSize:10,fontWeight:700,textTransform:"uppercase",marginBottom:6}}>Colours</p>
+                    <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+                      {prod.colours.map(c => (
+                        <button key={c} onClick={()=>updateItem(item.localId,{colours: item.colours.includes(c) ? item.colours.filter(x=>x!==c) : [...item.colours,c]})}
+                          style={{padding:"5px 10px",borderRadius:20,border:`1.5px solid ${item.colours.includes(c)?S.accent:S.border}`,background:item.colours.includes(c)?S.accent+"22":"transparent",color:item.colours.includes(c)?S.accent:S.muted,fontSize:11,cursor:"pointer",fontFamily:"inherit"}}>{c}</button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {prod && prod.sizes.length>0 && (
+                  <div style={{marginBottom:12}}>
+                    <p style={{color:S.muted,fontSize:10,fontWeight:700,textTransform:"uppercase",marginBottom:6}}>Sizes</p>
+                    <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+                      {prod.sizes.map(sz => (
+                        <button key={sz} onClick={()=>updateItem(item.localId,{sizes: item.sizes.includes(sz) ? item.sizes.filter(x=>x!==sz) : [...item.sizes,sz]})}
+                          style={{padding:"5px 10px",borderRadius:20,border:`1.5px solid ${item.sizes.includes(sz)?S.accent:S.border}`,background:item.sizes.includes(sz)?S.accent+"22":"transparent",color:item.sizes.includes(sz)?S.accent:S.muted,fontSize:11,cursor:"pointer",fontFamily:"inherit"}}>{sz}</button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div style={{display:"flex",gap:8}}>
+                  <Btn onClick={()=>saveItem(item)} disabled={!!saving[item.localId]} color={S.green}>{saving[item.localId]?<Spin/>:"Save"}</Btn>
+                  <Btn onClick={()=>removeItem(item)} outline color={S.red}>Remove</Btn>
+                </div>
+              </div>
+            )}
+          </Card>
+        );
+      })}
+
+      {items.length < maxSlots && (
+        <button onClick={addItem} style={{padding:14,border:`1.5px dashed ${S.border}`,borderRadius:12,background:"transparent",color:S.muted,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
+          + Add Another Product ({items.length}/{maxSlots===999?"∞":maxSlots})
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
 // VENDOR PORTAL
 // ══════════════════════════════════════════════════════════════════════════════
 function VendorPortal({session,onLogout}){
@@ -266,7 +552,7 @@ function VendorPortal({session,onLogout}){
     finally{setSaving(false);}
   };
 
-  const NAV=[["dashboard","Overview","◈"],["sales","Sales","◆"],["payouts","Payouts","⬡"],["myplan","My Plan","★"],["settings","Settings","◎"]];
+  const NAV=[["dashboard","Overview","◈"],["products","My Products","▦"],["sales","Sales","◆"],["payouts","Payouts","⬡"],["myplan","My Plan","★"],["settings","Settings","◎"]];
 
   return(
     <div style={{background:S.bg,minHeight:"100vh",maxWidth:480,margin:"0 auto"}}>
@@ -315,6 +601,8 @@ function VendorPortal({session,onLogout}){
             </div>
           </div>
         )}
+
+        {view==="products"&&<VendorProductsEditor vendor={vendor}/>}
 
         {view==="sales"&&(
           <div style={{display:"flex",flexDirection:"column",gap:14}}>

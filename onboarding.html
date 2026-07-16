@@ -333,6 +333,7 @@ function Canvas({side, logo, placement, printZone, onPlacement, onLogo, product}
   const svgRef = useRef();
   const drag = useRef(null);
   const resize = useRef(null);
+  const [uploading, setUploading] = useState(false);
 
   // Admin-configured zone (Print Zones tab in the admin portal) when one
   // exists for this product/side, otherwise a generic centered default —
@@ -413,14 +414,19 @@ function Canvas({side, logo, placement, printZone, onPlacement, onLogo, product}
           <text x={pz.x+pz.w/2} y={pz.y+pz.h/2+4} textAnchor="middle" fontSize="9" fill="rgba(0,174,239,0.35)" fontFamily="Segoe UI,sans-serif" fontWeight="600">Click to upload</text>
         )}
       </svg>
-      <input id={"upload-"+side} type="file" accept="image/*" style={{display:"none"}} onChange={e=>{
+      <input id={"upload-"+side} type="file" accept="image/*" style={{display:"none"}} onChange={async e=>{
         const f = e.target.files[0];
         if (!f) return;
-        const reader = new FileReader();
-        reader.onload = ev => onLogo && onLogo({url:ev.target.result, name:f.name});
-        reader.readAsDataURL(f);
         e.target.value="";
+        setUploading(true);
+        const path = `${crypto.randomUUID()}-${f.name}`.replace(/[^A-Za-z0-9._-]/g, "_");
+        const { error } = await sb.storage.from("vendor-logos").upload(path, f);
+        setUploading(false);
+        if (error) { alert("Logo upload failed: " + error.message); return; }
+        const { data } = sb.storage.from("vendor-logos").getPublicUrl(path);
+        onLogo && onLogo({url: data.publicUrl, name: f.name});
       }}/>
+      {uploading && <p style={{textAlign:"center",fontSize:10,color:T.muted,marginBottom:3}}>Uploading...</p>}
       {logo && (
         <div style={{marginTop:4,padding:"4px 8px",background:T.greenDim,borderRadius:6,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
           <p style={{color:T.green,fontSize:10,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1}}>{logo.name}</p>
@@ -504,9 +510,7 @@ function StepDesign({planId, slots, setSlots, products, loadingProducts, printZo
                 </div>
 
                 {/* Canvases */}
-                <div style={{display:"flex",gap:10,marginBottom:12}}
-                  onLogoloaded={e=>{updSlot(i,{[e.detail.side+"Logo"]:{url:e.detail.url,name:e.detail.name},[e.detail.side+"Pl"]:null});}}
-                  onLogocleared={e=>{updSlot(i,{[e.detail.side+"Logo"]:null,[e.detail.side+"Pl"]:null});}}>
+                <div style={{display:"flex",gap:10,marginBottom:12}}>
                   <Canvas side="front" logo={d.frontLogo} placement={d.frontPl} product={prod}
                     printZone={printZones[`${prod.id}:front`]}
                     onPlacement={p=>updSlot(i,{frontPl:p})}
@@ -752,6 +756,12 @@ function App() {
       };
       localStorage.setItem("mod_vendor_meta", JSON.stringify(meta));
 
+      // Stripe truncates each metadata value to 500 characters — productSlots
+      // can easily exceed that with multiple products/placements, so it's
+      // deliberately left out here. The full data reaches the proxy intact
+      // via the direct /vendor/save JSON POST below instead.
+      const { productSlots, ...stripeMeta } = meta;
+
       const baseUrl = window.location.origin + window.location.pathname;
       const res = await fetch(PROXY + "/stripe/checkout", {
         method: "POST",
@@ -762,7 +772,7 @@ function App() {
           cancelUrl:  baseUrl + "?checkout=cancel",
           email:      contact.email,
           name:       contact.firstName + " " + contact.lastName,
-          metadata:   meta,
+          metadata:   stripeMeta,
         }),
       });
       const data = await res.json();

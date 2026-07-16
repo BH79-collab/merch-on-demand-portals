@@ -65,6 +65,44 @@ async function fetchProducts() {
   });
 }
 
+// Composites a garment photo + a vendor's logo (at their saved placement)
+// into a single mockup image, uploads it to Supabase Storage, and returns
+// its public URL — this becomes the Shopify product's listing image.
+// Routes both source images through the proxy's /image-proxy so the canvas
+// never gets cross-origin "tainted" regardless of Shopify/Supabase's own
+// CORS headers.
+async function generateMockup(garmentUrl, logoUrl, placement) {
+  const SCALE = 5; // 200x220 design-canvas viewBox -> 1000x1100px output
+  const proxied = url => PROXY + "/image-proxy?url=" + encodeURIComponent(url);
+  const loadImage = url => new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error("Failed to load image for mockup: " + url));
+    img.src = proxied(url);
+  });
+
+  const [garment, logo] = await Promise.all([loadImage(garmentUrl), loadImage(logoUrl)]);
+
+  const canvas = document.createElement("canvas");
+  canvas.width = 200 * SCALE;
+  canvas.height = 220 * SCALE;
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(garment, 10*SCALE, 10*SCALE, 180*SCALE, 200*SCALE);
+  const pl = placement || {x:70, y:60, w:60, h:60};
+  ctx.drawImage(logo, pl.x*SCALE, pl.y*SCALE, pl.w*SCALE, pl.h*SCALE);
+
+  const blob = await new Promise((resolve, reject) =>
+    canvas.toBlob(b => b ? resolve(b) : reject(new Error("Canvas export failed")), "image/png"));
+  const path = `mockups/${crypto.randomUUID()}.png`;
+  const { error } = await sb.storage.from("vendor-logos").upload(path, blob, {contentType:"image/png"});
+  if (error) throw new Error("Mockup upload failed: " + error.message);
+  const { data } = sb.storage.from("vendor-logos").getPublicUrl(path);
+  return data.publicUrl;
+}
+
 // ── Plans ─────────────────────────────────────────────────────────────────────
 const PLANS = [
   { id:"starter", name:"Starter", price:29.95, payout:10, max:3, col:"#4ADE80", badge:null,
@@ -757,6 +795,7 @@ function AdminPortal({onLogout}){
   const[planModal,setPlanModal]=useState(null);
   const[loading,setLoading]=useState(true);
   const[toast,setToast]=useState(null);
+  const[publishing,setPublishing]=useState(null);
 
   const showToast=(msg)=>{setToast(msg);setTimeout(()=>setToast(null),3000);};
 
@@ -793,17 +832,54 @@ function AdminPortal({onLogout}){
     showToast(`Vendor ${status}`);
   };
 
-  const openShopifySetup=(vendor)=>{
-    // Parse product slots from notes
-    let slots=[];
-    try{const n=JSON.parse(vendor.notes||"{}");slots=n.productSlots||[];}catch(e){}
-    const brandName=vendor.brand_name||vendor.store_name||vendor.name;
-    // Build Shopify new collection URL
-    const collectionUrl=`https://admin.shopify.com/store/shop-merch-on-demand/collections/new?collection[title]=${encodeURIComponent(brandName)}`;
-    window.open(collectionUrl,"_blank");
-    // Show product info in a toast for reference
-    const productNames=slots.filter(s=>s&&s.productId).map(s=>s.productId).join(", ");
-    showToast(`Opening Shopify for ${brandName}. Products: ${productNames||"none selected"}`);
+  // Approves a vendor and pushes their chosen products live to Shopify:
+  // generates a composited mockup per logo, uploads it, then has the proxy
+  // (privileged Admin API access) create the actual products/variants and
+  // add them to the vendor's collection.
+  const approveAndPublish=async(vendor)=>{
+    const brandName=vendor.brand_name||vendor.store_name||vendor.name||"this vendor";
+    const{data:vp}=await sb.from("vendor_products").select("*").eq("vendor_id",vendor.id);
+    const products=(vp||[]).filter(p=>p.product_id);
+    if(!products.length){showToast("No products to publish for "+brandName);return;}
+    const toPublish=products.filter(p=>!p.shopify_product_id);
+    if(!toPublish.length){showToast("All products already published for "+brandName);return;}
+    if(!confirm(`This will create ${toPublish.length} live Shopify product(s) for ${brandName}, published immediately on the storefront. Continue?`))return;
+
+    setPublishing(vendor.id);
+    try{
+      if(vendor.status!=="active")await setStatus(vendor.id,"active");
+
+      const catalogue=await fetchProducts().catch(()=>[]);
+      for(const p of toPublish){
+        const prod=catalogue.find(c=>c.id===p.product_id);
+        if(!prod)continue;
+        const patch={};
+        try{
+          if(p.front_logo_url && !p.front_mockup_url)
+            patch.front_mockup_url=await generateMockup(prod.frontImage,p.front_logo_url,p.front_placement);
+          if(p.back_logo_url && !p.back_mockup_url)
+            patch.back_mockup_url=await generateMockup(prod.backImage,p.back_logo_url,p.back_placement);
+        }catch(e){
+          showToast(`Mockup generation failed for ${prod.name}: ${e.message}`);
+        }
+        if(Object.keys(patch).length)await sb.from("vendor_products").update(patch).eq("id",p.id);
+      }
+
+      const res=await fetch(PROXY+"/shopify/publish-vendor",{
+        method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({vendorId:vendor.id}),
+      });
+      const data=await res.json();
+      if(!res.ok)throw new Error(data.error||"Publish failed");
+      const ok=(data.results||[]).filter(r=>r.status==="published").length;
+      const failed=(data.results||[]).filter(r=>r.status==="error");
+      showToast(`${brandName}: ${ok} product(s) published${failed.length?`, ${failed.length} failed`:""}`);
+      if(failed.length)console.error("Publish errors:",failed);
+    }catch(e){
+      showToast("Publish failed: "+e.message);
+    }finally{
+      setPublishing(null);
+    }
   };
 
   const now=new Date();
@@ -908,7 +984,7 @@ function AdminPortal({onLogout}){
               <Btn small color={S.green} onClick={()=>setPlanModal(vd.id)}>Change Plan</Btn>
               {vd.status==="active"?<Btn small outline color={S.amber} onClick={()=>setStatus(vd.id,"paused")}>Pause</Btn>:<Btn small outline color={S.green} onClick={()=>setStatus(vd.id,"active")}>Activate</Btn>}
               <Btn small outline color={S.red} onClick={()=>setStatus(vd.id,"removed")}>Remove</Btn>
-              <Btn small outline color={"#00AEEF"} onClick={()=>openShopifySetup(vd)}>🛍 Setup in Shopify</Btn>
+              <Btn small outline color={"#00AEEF"} disabled={publishing===vd.id} onClick={()=>approveAndPublish(vd)}>{publishing===vd.id?<Spin/>:"🛍 Approve & Publish to Shopify"}</Btn>
             </div>
             {/* Design summary */}
             {(()=>{

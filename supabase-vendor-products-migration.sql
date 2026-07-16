@@ -56,9 +56,13 @@ create policy "admins full access to vendor_products" on public.vendor_products
 -- auth.role()='authenticated' would break that. Logo images aren't
 -- sensitive data, so this trade-off is acceptable, consistent with the
 -- rest of this app's current security posture.
-insert into storage.buckets (id, name, public)
-values ('vendor-logos', 'vendor-logos', true)
-on conflict (id) do nothing;
+-- 10MB cap and image-only MIME types, enforced by Storage itself (not just
+-- client-side JS, which can be bypassed by calling the API directly).
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('vendor-logos', 'vendor-logos', true, 10485760, array['image/png','image/jpeg','image/webp','image/gif','image/svg+xml'])
+on conflict (id) do update set
+  file_size_limit = 10485760,
+  allowed_mime_types = array['image/png','image/jpeg','image/webp','image/gif','image/svg+xml'];
 
 create policy "anyone can view vendor logos" on storage.objects
   for select using (bucket_id = 'vendor-logos');

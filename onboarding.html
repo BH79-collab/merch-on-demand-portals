@@ -31,6 +31,7 @@ window.MOD_LOGO = "data:image/png;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/4gHYSUNDX1B
 <script type="text/babel">
 // ── Config ────────────────────────────────────────────────────────────────────
 const PROXY    = "https://shopify-proxy-production-c72c.up.railway.app";
+const MAX_LOGO_BYTES = 10 * 1024 * 1024; // matches the vendor-logos bucket's server-side limit
 const SUPA_URL = "https://xwennpgxsndjpbwdmcwk.supabase.co";
 const SUPA_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh3ZW5ucGd4c25kanBid2RtY3drIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY5ODc1MjksImV4cCI6MjA5MjU2MzUyOX0.LAyCQtlsF9puLftwyK67qwsYED7PksZeP3QoD0lmuTA";
 const PRICE_IDS = {
@@ -418,6 +419,7 @@ function Canvas({side, logo, placement, printZone, onPlacement, onLogo, product}
         const f = e.target.files[0];
         if (!f) return;
         e.target.value="";
+        if (f.size > MAX_LOGO_BYTES) { alert(`That file is ${(f.size/1024/1024).toFixed(1)}MB — logos must be under ${MAX_LOGO_BYTES/1024/1024}MB.`); return; }
         setUploading(true);
         const path = `${crypto.randomUUID()}-${f.name}`.replace(/[^A-Za-z0-9._-]/g, "_");
         const { error } = await sb.storage.from("vendor-logos").upload(path, f);

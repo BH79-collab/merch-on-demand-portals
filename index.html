@@ -31,6 +31,7 @@ const sb = supabase.createClient(SUPA_URL, SUPA_KEY);
 // ── Stripe config ─────────────────────────────────────────────────────────────
 const STRIPE_PK    = "pk_live_51O2OzhLgoqGtM7YGmzxSIZM6XNNfgJGpfIQYYcoT7JnFneionzk0gFfn0S8AiqvJZDhGI0zj2qQ28FvPF2Z0fFs7006Y2B3SXR";
 const PROXY        = "https://shopify-proxy-production-c72c.up.railway.app";
+const MAX_LOGO_BYTES = 10 * 1024 * 1024; // matches the vendor-logos bucket's server-side limit
 const PRICE_IDS    = {
   starter: "price_1TPZnhLgoqGtM7YGeJD5rUrp",
   growth:  "price_1TPZplLgoqGtM7YGhboA3FYp",
@@ -297,6 +298,7 @@ function VendorCanvas({side, logo, placement, printZone, onPlacement, onLogo, pr
         const f = e.target.files[0];
         if (!f) return;
         e.target.value="";
+        if (f.size > MAX_LOGO_BYTES) { alert(`That file is ${(f.size/1024/1024).toFixed(1)}MB — logos must be under ${MAX_LOGO_BYTES/1024/1024}MB.`); return; }
         setUploading(true);
         const path = `${crypto.randomUUID()}-${f.name}`.replace(/[^A-Za-z0-9._-]/g, "_");
         const { error } = await sb.storage.from("vendor-logos").upload(path, f);
@@ -813,7 +815,7 @@ function AdminPortal({onLogout}){
 
   const vd=detail?vendors.find(v=>v.id===detail):null;
 
-  const NAV=[["dashboard","Dashboard","◈"],["vendors","Vendors","⬡"],["payments","Payments","◆"],["orders","Orders","◎"],["plans","Plans","★"],["printzones","Print Zones","▦"]];
+  const NAV=[["dashboard","Dashboard","◈"],["vendors","Vendors","⬡"],["payments","Payments","◆"],["orders","Orders","◎"],["plans","Plans","★"],["printzones","Print Zones","▦"],["printfiles","Print Files","⬇"]];
 
   if(loading)return<div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",background:S.bg}}><Spin/></div>;
 
@@ -1003,6 +1005,8 @@ function AdminPortal({onLogout}){
         )}
 
         {view==="printzones"&&<PrintZoneEditor/>}
+
+        {view==="printfiles"&&<PrintFilesView vendors={vendors}/>}
 
       </div>
 
@@ -1199,6 +1203,92 @@ function PrintZoneEditor(){
           )}
         </Card>
       </div>
+    </div>
+  );
+}
+
+// ── Print Files (download logos for production) ─────────────────────────────
+function downloadUrl(url){
+  if(!url) return url;
+  return url + (url.includes("?") ? "&" : "?") + "download";
+}
+
+function PrintFilesView({vendors}){
+  const [catalogue, setCatalogue] = useState([]);
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [q, setQ] = useState("");
+
+  const load = useCallback(async()=>{
+    setLoading(true);
+    const [prods, vpRes] = await Promise.all([
+      fetchProducts().catch(()=>[]),
+      sb.from("vendor_products").select("*").order("created_at",{ascending:false}),
+    ]);
+    setCatalogue(prods);
+    setRows(vpRes.data||[]);
+    setLoading(false);
+  },[]);
+
+  useEffect(()=>{load();},[load]);
+
+  const vendorById = id => vendors.find(v=>v.id===id);
+  const productById = id => catalogue.find(p=>p.id===id);
+
+  const filtered = rows.filter(r=>{
+    if(!q) return true;
+    const v = vendorById(r.vendor_id);
+    const p = productById(r.product_id);
+    const hay = `${v?.brand_name||v?.store_name||""} ${p?.name||""}`.toLowerCase();
+    return hay.includes(q.toLowerCase());
+  });
+
+  if (loading) return <div style={{display:"flex",justifyContent:"center",padding:60}}><Spin/></div>;
+
+  return (
+    <div style={{display:"flex",flexDirection:"column",gap:16}}>
+      <div>
+        <p style={{fontFamily:"monospace",fontSize:22,fontWeight:900,color:S.text}}>Print Files</p>
+        <p style={{color:S.muted,fontSize:12,marginTop:3}}>Download vendor logo artwork for production. {rows.length} product{rows.length===1?"":"s"} across all vendors.</p>
+      </div>
+      <input value={q} onChange={e=>setQ(e.target.value)} placeholder="Search by vendor or product..."
+        style={{width:"100%",padding:"10px 14px",background:"rgba(255,255,255,0.05)",border:`1px solid ${S.border}`,borderRadius:10,color:S.text,fontSize:13,fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/>
+
+      {filtered.length===0 ? <p style={{color:S.muted,fontSize:13,textAlign:"center",padding:"30px 0"}}>No products found.</p> : (
+        <div style={{display:"flex",flexDirection:"column",gap:10}}>
+          {filtered.map(r=>{
+            const v = vendorById(r.vendor_id);
+            const p = productById(r.product_id);
+            return (
+              <Card key={r.id} style={{padding:14}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                  <div>
+                    <p style={{color:S.text,fontWeight:700,fontSize:13}}>{v?.brand_name||v?.store_name||"Unknown vendor"}</p>
+                    <p style={{color:S.muted,fontSize:11}}>{p?.name||r.product_id}</p>
+                  </div>
+                  <Tag color={S.accent}>{(r.colours||[]).length} colour{(r.colours||[]).length===1?"":"s"}</Tag>
+                </div>
+                <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
+                  {["front","back"].map(side=>{
+                    const url = side==="front" ? r.front_logo_url : r.back_logo_url;
+                    if(!url) return null;
+                    return (
+                      <div key={side} style={{display:"flex",alignItems:"center",gap:8,background:S.faint,borderRadius:10,padding:8}}>
+                        <img src={url} style={{width:40,height:40,objectFit:"contain",borderRadius:6,background:"#000"}}/>
+                        <div>
+                          <p style={{color:S.muted,fontSize:9,fontWeight:700,textTransform:"uppercase",marginBottom:3}}>{side}</p>
+                          <a href={downloadUrl(url)} download style={{color:S.green,fontSize:11,fontWeight:700,textDecoration:"none"}}>⬇ Download</a>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {!r.front_logo_url && !r.back_logo_url && <p style={{color:S.muted,fontSize:12}}>No logos uploaded yet.</p>}
+                </div>
+              </Card>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

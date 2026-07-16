@@ -206,7 +206,7 @@ function VendorPortal({session,onLogout}){
   useEffect(()=>{
     const load=async()=>{
       setLoading(true);
-      const{data:v}=await sb.from("vendors").select("*").eq("email",session.email).single();
+      const{data:v}=await sb.from("vendors").select("*").eq("auth_user_id",session.user.id).single();
       if(v){
         setVendor(v);
         const{data:o}=await sb.from("orders").select("*").eq("vendor_id",v.id).order("order_date",{ascending:false});
@@ -232,7 +232,7 @@ function VendorPortal({session,onLogout}){
   };
 
   if(loading)return<div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",background:S.bg}}><Spin/></div>;
-  if(!vendor)return<div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",background:S.bg,flexDirection:"column",gap:12}}><p style={{color:S.red}}>No vendor account found for {session.email}</p><Btn onClick={onLogout}>Back to Login</Btn></div>;
+  if(!vendor)return<div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",background:S.bg,flexDirection:"column",gap:12}}><p style={{color:S.red}}>No vendor account found for {session.user.email}</p><Btn onClick={onLogout}>Back to Login</Btn></div>;
 
   const p=planOf(vendor.plan);
   const now=new Date();
@@ -752,27 +752,20 @@ async function createStripeSubscription(email, name, planId, cardElement) {
 // LOGIN
 // ══════════════════════════════════════════════════════════════════════════════
 function Login({onLogin}){
-  const[role,setRole]=useState("vendor");
   const[email,setEmail]=useState("");
   const[pass,setPass]=useState("");
   const[err,setErr]=useState("");
   const[loading,setLoading]=useState(false);
 
   const handle=async()=>{
+    if(!email||!pass)return;
     setLoading(true);setErr("");
-    if(role==="admin"){
-      if(email==="admin@merchantondemand.com.au"&&pass==="admin123"){
-        onLogin({role:"admin",email});
-      } else {
-        setErr("Invalid admin credentials");
-      }
+    const{data,error}=await sb.auth.signInWithPassword({email:email.toLowerCase().trim(),password:pass});
+    if(error){
+      setErr(error.message==="Invalid login credentials"?"Incorrect email or password.":error.message);
       setLoading(false);return;
     }
-    // Vendor login — check Supabase
-    const{data,error}=await sb.from("vendors").select("id,email,name,status").eq("email",email.toLowerCase().trim()).single();
-    if(error||!data){setErr("No vendor account found for this email. Please complete onboarding first.");setLoading(false);return;}
-    if(data.status==="pending"){setErr("Your account is pending approval. We'll be in touch within 1-2 business days.");setLoading(false);return;}
-    onLogin({role:"vendor",email:data.email,vendorId:data.id});
+    onLogin(data.session);
     setLoading(false);
   };
 
@@ -787,36 +780,20 @@ function Login({onLogin}){
           <p style={{color:S.muted,fontSize:12,marginTop:3}}>Portal Login</p>
         </div>
 
-        <div style={{display:"flex",background:"rgba(255,255,255,0.03)",border:`1px solid ${S.border}`,borderRadius:12,padding:4,marginBottom:20}}>
-          {["vendor","admin"].map(r=><button key={r} onClick={()=>setRole(r)} style={{flex:1,padding:10,border:"none",borderRadius:9,background:role===r?S.green:"transparent",color:role===r?"#000":S.muted,fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit",textTransform:"capitalize"}}>{r==="admin"?"🔧 Admin":"🏪 Vendor"}</button>)}
-        </div>
-
         <Card style={{marginBottom:14}}>
           <div style={{marginBottom:14}}>
             <label style={{display:"block",fontSize:10,fontWeight:700,color:S.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:5}}>Email</label>
             <input value={email} onChange={e=>setEmail(e.target.value)} placeholder="your@email.com" type="email" style={iS} onFocus={e=>e.target.style.borderColor=S.green} onBlur={e=>e.target.style.borderColor=S.border}/>
           </div>
-          {role==="admin"&&<div style={{marginBottom:16}}>
+          <div style={{marginBottom:16}}>
             <label style={{display:"block",fontSize:10,fontWeight:700,color:S.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:5}}>Password</label>
             <input value={pass} onChange={e=>setPass(e.target.value)} placeholder="••••••••" type="password" style={iS} onFocus={e=>e.target.style.borderColor=S.green} onBlur={e=>e.target.style.borderColor=S.border} onKeyDown={e=>e.key==="Enter"&&handle()}/>
-          </div>}
-          {role==="vendor"&&<p style={{color:S.muted,fontSize:11,marginBottom:14,lineHeight:1.6}}>Enter your email address to access your vendor dashboard. No password needed — we verify against your onboarding details.</p>}
+          </div>
           {err&&<p style={{color:S.red,fontSize:12,marginBottom:12}}>⚠ {err}</p>}
-          <Btn onClick={handle} disabled={loading||!email} full color={S.green}>
+          <Btn onClick={handle} disabled={loading||!email||!pass} full color={S.green}>
             {loading?<Spin/>:"Sign In →"}
           </Btn>
         </Card>
-
-        <div style={{background:"rgba(255,255,255,0.02)",border:`1px solid ${S.border}`,borderRadius:12,padding:14}}>
-          <p style={{color:S.muted,fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8}}>Demo Access</p>
-          {[["🔧 Admin","admin@merchantondemand.com.au","admin123","admin"],["🏪 Vendor (demo)","vendor@demo.com","","vendor"]].map(([name,em,pw,rl])=>(
-            <button key={em} onClick={()=>{setEmail(em);setPass(pw);setRole(rl);}} style={{display:"flex",justifyContent:"space-between",alignItems:"center",width:"100%",padding:"8px 10px",background:"rgba(255,255,255,0.03)",border:`1px solid ${S.border}`,borderRadius:8,cursor:"pointer",fontFamily:"inherit",marginBottom:6}}>
-              <span style={{color:S.green,fontSize:12,fontWeight:700}}>{name}</span>
-              <span style={{color:S.muted,fontSize:11}}>{em}</span>
-            </button>
-          ))}
-          <p style={{color:S.muted,fontSize:10,marginTop:6,textAlign:"center"}}>Admin password: admin123 · Vendors log in with their onboarding email</p>
-        </div>
       </div>
     </div>
   );
@@ -825,9 +802,23 @@ function Login({onLogin}){
 // ── Root ──────────────────────────────────────────────────────────────────────
 function App(){
   const[session,setSession]=useState(null);
+  const[checking,setChecking]=useState(true);
+
+  useEffect(()=>{
+    sb.auth.getSession().then(({data})=>{setSession(data.session);setChecking(false);});
+    const{data:listener}=sb.auth.onAuthStateChange((_event,newSession)=>{setSession(newSession);});
+    return ()=>listener.subscription.unsubscribe();
+  },[]);
+
+  const logout=async()=>{await sb.auth.signOut();setSession(null);};
+
+  if(checking)return<div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",background:S.bg}}><Spin/></div>;
   if(!session)return <Login onLogin={s=>setSession(s)}/>;
-  if(session.role==="admin")return <AdminPortal onLogout={()=>setSession(null)}/>;
-  return <VendorPortal session={session} onLogout={()=>setSession(null)}/>;
+  // role is read from app_metadata, which only Supabase (via the dashboard/admin API) can set —
+  // it cannot be edited by the signed-in user, unlike user_metadata.
+  const isAdmin=session.user?.app_metadata?.role==="admin";
+  if(isAdmin)return <AdminPortal onLogout={logout}/>;
+  return <VendorPortal session={session} onLogout={logout}/>;
 }
 
 ReactDOM.createRoot(document.getElementById("root")).render(<App/>);

@@ -31,8 +31,6 @@ window.MOD_LOGO = "data:image/png;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/4gHYSUNDX1B
 <script type="text/babel">
 // ── Config ────────────────────────────────────────────────────────────────────
 const PROXY    = "https://shopify-proxy-production-c72c.up.railway.app";
-const SF_STORE = "shop-merch-on-demand.myshopify.com";
-const SF_TOKEN = "87755ea9115d278c0e62feef60c8999b";
 const SUPA_URL = "https://xwennpgxsndjpbwdmcwk.supabase.co";
 const SUPA_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh3ZW5ucGd4c25kanBid2RtY3drIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY5ODc1MjksImV4cCI6MjA5MjU2MzUyOX0.LAyCQtlsF9puLftwyK67qwsYED7PksZeP3QoD0lmuTA";
 const PRICE_IDS = {
@@ -92,15 +90,7 @@ const COLOUR_HEX = {
 
 // ── Fetch Shopify products ────────────────────────────────────────────────────
 async function fetchProducts() {
-  const query = "{products(first:50){edges{node{id title handle productType images(first:1){edges{node{url}}} options{name values} variants(first:100){edges{node{id title selectedOptions{name value}}}}}}}}";
-  const res = await fetch("https://" + SF_STORE + "/api/2024-01/graphql.json", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Shopify-Storefront-Access-Token": SF_TOKEN,
-    },
-    body: JSON.stringify({query}),
-  });
+  const res = await fetch(PROXY + "/shopify/products");
   if (!res.ok) throw new Error("Storefront API error " + res.status);
   const json = await res.json();
   if (json.errors) throw new Error(json.errors[0].message);
@@ -246,6 +236,13 @@ function StepContact({d, set}) {
       </div>
       <Input label="Email" required type="email" value={d.email} onChange={s("email")} placeholder="jake@example.com"/>
       <Input label="Phone" required type="tel"   value={d.phone} onChange={s("phone")} placeholder="+61 4XX XXX XXX"/>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 12px"}}>
+        <Input label="Create Password" required type="password" value={d.password} onChange={s("password")} placeholder="••••••••" hint="At least 8 characters"/>
+        <Input label="Confirm Password" required type="password" value={d.confirmPassword} onChange={s("confirmPassword")} placeholder="••••••••"/>
+      </div>
+      {d.confirmPassword && d.password!==d.confirmPassword
+        ? <p style={{color:T.accent,fontSize:11,marginTop:-8,marginBottom:16}}>Passwords don't match.</p>
+        : <p style={{color:T.muted,fontSize:11,marginTop:-8,marginBottom:16}}>You'll use this password to log in to your vendor portal.</p>}
       <div style={{height:1,background:T.border,margin:"8px 0 20px"}}/>
       <p style={{fontWeight:700,color:T.text,fontSize:15,marginBottom:14}}>Business Address</p>
       <Input label="Street Address" required value={d.street}   onChange={s("street")}   placeholder="123 Main Street"/>
@@ -648,7 +645,7 @@ function App() {
   const [loadingProds, setLoadingProds] = useState(true);
 
   const [brand,   setBrand]   = useState({brandName:"", category:""});
-  const [contact, setContact] = useState({firstName:"", lastName:"", email:"", phone:"", street:"", suburb:"", state:"", postcode:"", country:"Australia"});
+  const [contact, setContact] = useState({firstName:"", lastName:"", email:"", phone:"", password:"", confirmPassword:"", street:"", suburb:"", state:"", postcode:"", country:"Australia"});
   const [bank,    setBank]    = useState({bank:"", accountName:"", bsb:"", accountNumber:""});
   const [planId,  setPlanId]  = useState("starter");
   const [slots,   setSlots]   = useState([null]);
@@ -675,6 +672,7 @@ function App() {
           body: JSON.stringify({
             meta,
             email: meta.email,
+            authUserId: meta.authUserId,
             sessionId: params.get("session_id"),
             subscriptionId: null,
           }),
@@ -696,7 +694,7 @@ function App() {
 
   const canContinue = () => {
     if (step==="brand")   return !!brand.brandName;
-    if (step==="contact") return !!(contact.firstName && contact.lastName && contact.email && contact.phone && contact.street && contact.suburb && contact.state && contact.postcode);
+    if (step==="contact") return !!(contact.firstName && contact.lastName && contact.email && contact.phone && contact.password && contact.password.length>=8 && contact.password===contact.confirmPassword && contact.street && contact.suburb && contact.state && contact.postcode);
     if (step==="bank")    return !!(bank.bank && bank.accountName && bank.bsb && bank.accountNumber);
     if (step==="plan")    return !!planId;
     return true;
@@ -705,11 +703,26 @@ function App() {
   const handleCheckout = async () => {
     setBusy(true); setCheckoutErr("");
     try {
+      // Create the vendor's login account first — Supabase verifies/hashes the
+      // password server-side, so it never has to be checked or stored by us.
+      const { data: signUpData, error: signUpErr } = await sb.auth.signUp({
+        email: contact.email,
+        password: contact.password,
+      });
+      if (signUpErr) {
+        throw new Error(
+          signUpErr.message.includes("already registered")
+            ? "An account already exists for this email. Please log in instead."
+            : signUpErr.message
+        );
+      }
+
       // Save all vendor data to localStorage so fallback can use it after redirect
       const meta = {
         vendorName:    brand.brandName,
         category:      brand.category,
         email:         contact.email,
+        authUserId:    signUpData.user?.id || null,
         firstName:     contact.firstName,
         lastName:      contact.lastName,
         phone:         contact.phone,

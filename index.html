@@ -1450,6 +1450,8 @@ function ProductionView({vendors, vendorProducts}){
   const [saving, setSaving] = useState({});
   const [toast, setToast] = useState(null);
   const [lightbox, setLightbox] = useState(null);
+  const [trackingDraft, setTrackingDraft] = useState({});
+  const [fulfilling, setFulfilling] = useState({});
 
   const showToast = msg => { setToast(msg); setTimeout(()=>setToast(null), 2500); };
 
@@ -1464,10 +1466,35 @@ function ProductionView({vendors, vendorProducts}){
   const vendorById = id => vendors.find(v => v.id === id);
   const vpById = id => vendorProducts.find(p => p.id === id);
 
+  // Marking an order "shipped" also pushes fulfillment to Shopify — that's
+  // what ShipStation and the storefront actually watch, not our own status
+  // field, so the two need to move together.
+  const fulfillInShopify = async order => {
+    setFulfilling(f => ({...f, [order.id]:true}));
+    try {
+      const trackingNumber = trackingDraft[order.id] ?? order.tracking_number ?? "";
+      const res = await fetch(PROXY+"/shopify/fulfill-order", {
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({ shopifyOrderId: order.shopify_order_id, trackingNumber: trackingNumber || undefined }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Fulfillment failed");
+      setOrders(os => os.map(o => o.id===order.id ? {...o, fulfillment_status:"fulfilled", tracking_number:trackingNumber} : o));
+      showToast("Order fulfilled in Shopify");
+    } catch(e) {
+      showToast("Shopify fulfillment failed: " + e.message);
+    } finally {
+      setFulfilling(f => ({...f, [order.id]:false}));
+    }
+  };
+
   const updateStatus = async (order, status) => {
     setOrders(os => os.map(o => o.id === order.id ? {...o, production_status:status} : o));
     const { error } = await sb.from("orders").update({production_status:status}).eq("id", order.id);
-    if (error) showToast("Update failed: " + error.message);
+    if (error) { showToast("Update failed: " + error.message); return; }
+    if (status === "shipped" && order.fulfillment_status !== "fulfilled") {
+      await fulfillInShopify(order);
+    }
   };
 
   const saveNotes = async order => {
@@ -1509,8 +1536,8 @@ function ProductionView({vendors, vendorProducts}){
               <Card key={o.id} style={{padding:14}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10,gap:10,flexWrap:"wrap"}}>
                   <div>
-                    <p style={{color:S.text,fontWeight:700,fontSize:13}}>#{o.shopify_order_id} · {v?.brand_name||v?.store_name||"Unknown vendor"}</p>
-                    <p style={{color:S.muted,fontSize:11}}>{o.product_title}{o.variant_title?` — ${o.variant_title}`:""} · qty {o.quantity} · {fmtD(o.order_date)}</p>
+                    <p style={{color:S.text,fontWeight:700,fontSize:13}}>{o.order_number||"#"+o.shopify_order_id} · {v?.brand_name||v?.store_name||"Unknown vendor"}</p>
+                    <p style={{color:S.muted,fontSize:11}}>{o.product_title}{o.variant_title?` — ${o.variant_title}`:""} · qty {o.quantity}{o.unit_price?` · ${o.quantity} × ${fmt(o.unit_price)} = ${fmt(o.revenue)}`:""} · {fmtD(o.order_date)}</p>
                   </div>
                   <div style={{display:"flex",alignItems:"center",gap:8}}>
                     {v?.email && (
@@ -1558,10 +1585,18 @@ function ProductionView({vendors, vendorProducts}){
                   {!vp && <p style={{color:S.muted,fontSize:12}}>Couldn't match this line to a product's artwork — may predate the linking fix.</p>}
                 </div>
 
-                <div style={{display:"flex",gap:8}}>
+                <div style={{display:"flex",gap:8,marginBottom:8}}>
                   <input value={notesDraft[o.id]??o.production_notes??""} onChange={e=>setNotesDraft(d=>({...d,[o.id]:e.target.value}))} placeholder="Production notes..."
                     style={{flex:1,padding:"8px 10px",background:"rgba(255,255,255,0.05)",border:`1px solid ${S.border}`,borderRadius:8,color:S.text,fontSize:12,fontFamily:"inherit",outline:"none"}}/>
                   <Btn small outline color={S.muted} disabled={!!saving[o.id]} onClick={()=>saveNotes(o)}>{saving[o.id]?<Spin/>:"Save"}</Btn>
+                </div>
+
+                <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                  <input value={trackingDraft[o.id]??o.tracking_number??""} onChange={e=>setTrackingDraft(d=>({...d,[o.id]:e.target.value}))} placeholder="Tracking number (optional)"
+                    style={{flex:1,padding:"8px 10px",background:"rgba(255,255,255,0.05)",border:`1px solid ${S.border}`,borderRadius:8,color:S.text,fontSize:12,fontFamily:"inherit",outline:"none"}}/>
+                  {o.fulfillment_status==="fulfilled"
+                    ? <Tag color={S.green}>✓ Fulfilled in Shopify</Tag>
+                    : <Btn small color={"#00AEEF"} disabled={!!fulfilling[o.id]} onClick={()=>fulfillInShopify(o)}>{fulfilling[o.id]?<Spin/>:"Mark Shipped"}</Btn>}
                 </div>
               </Card>
             );

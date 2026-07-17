@@ -527,7 +527,7 @@ function StepDesign({planId, slots, setSlots, products, loadingProducts, printZo
                 {/* Colours */}
                 {prod?.colours?.length > 0 && (
                   <div style={{marginBottom:14}}>
-                    <Label>{"Colours to offer" + (d.colours?.length>0?" ("+d.colours.length+" selected)":"")}</Label>
+                    <Label required>{"Colours to offer" + (d.colours?.length>0?" ("+d.colours.length+" selected)":"")}</Label>
                     <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
                       {prod.colours.map(col => {
                         const hex = COLOUR_HEX[col] || "#888888";
@@ -549,7 +549,7 @@ function StepDesign({planId, slots, setSlots, products, loadingProducts, printZo
                 {/* Sizes */}
                 {prod?.sizes?.length > 0 && (
                   <div>
-                    <Label>Sizes to offer</Label>
+                    <Label required>Sizes to offer</Label>
                     <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
                       {prod.sizes.map(sz => {
                         const sel = (d.sizes||[]).includes(sz);
@@ -716,6 +716,7 @@ function App() {
     if (step==="contact") return !!(contact.firstName && contact.lastName && contact.email && contact.phone && contact.password && contact.password.length>=8 && contact.password===contact.confirmPassword && contact.street && contact.suburb && contact.state && contact.postcode);
     if (step==="bank")    return !!(bank.bank && bank.accountName && bank.bsb && bank.accountNumber);
     if (step==="plan")    return !!planId;
+    if (step==="design")  return slots.every(s => !s || !s.productId || (s.colours?.length>0 && s.sizes?.length>0));
     return true;
   };
 

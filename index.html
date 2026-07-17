@@ -417,6 +417,8 @@ function VendorProductsEditor({vendor}) {
 
   const saveItem = async item => {
     if (!item.productId) return;
+    if (!item.colours.length) { showToast("Pick at least one colour before saving"); return; }
+    if (!item.sizes.length)   { showToast("Pick at least one size before saving"); return; }
     setSaving(s => ({...s, [item.localId]: true}));
     const { data, error } = await sb.from("vendor_products").upsert({
       vendor_id: vendor.id, product_id: item.productId,
@@ -503,7 +505,7 @@ function VendorProductsEditor({vendor}) {
                 )}
 
                 <div style={{display:"flex",gap:8}}>
-                  <Btn onClick={()=>saveItem(item)} disabled={!!saving[item.localId]} color={S.green}>{saving[item.localId]?<Spin/>:"Save"}</Btn>
+                  <Btn onClick={()=>saveItem(item)} disabled={!!saving[item.localId]||!item.colours.length||!item.sizes.length} color={S.green}>{saving[item.localId]?<Spin/>:"Save"}</Btn>
                   <Btn onClick={()=>removeItem(item)} outline color={S.red}>Remove</Btn>
                 </div>
               </div>

@@ -45,11 +45,20 @@ async function fetchProducts() {
   if (json.errors) throw new Error(json.errors[0].message);
   return (json.data.products.edges || []).map(({node:p}) => {
     const colours = {}, sizes = [];
+    const colourImages = {};
     p.variants.edges.forEach(({node:v}) => {
+      const colourOpt = v.selectedOptions.find(o => /colou?r/i.test(o.name));
       v.selectedOptions.forEach(o => {
         if (/colou?r/i.test(o.name)) colours[o.value] = 1;
         if (/size/i.test(o.name) && !sizes.includes(o.value)) sizes.push(o.value);
       });
+      if (colourOpt && v.image?.url && !colourImages[colourOpt.value]) {
+        const front = v.image.url;
+        // This store names colour photos "{n}_front.webp" / "{n}_back.webp" —
+        // derive the back photo from the front when that pattern matches.
+        const back = front.includes("_front.") ? front.replace("_front.", "_back.") : null;
+        colourImages[colourOpt.value] = { front, back };
+      }
     });
     (p.options || []).forEach(o => {
       if (/colou?r/i.test(o.name)) o.values.forEach(v => colours[v] = 1);
@@ -61,6 +70,7 @@ async function fetchProducts() {
       frontImage: imgs[0] || null,
       backImage:  imgs[1] || imgs[0] || null,
       colours: Object.keys(colours), sizes,
+      colourImages,
     };
   });
 }
@@ -859,10 +869,30 @@ function AdminPortal({onLogout}){
         if(!prod)continue;
         const patch={};
         try{
-          if(p.front_logo_url && !p.front_mockup_url)
-            patch.front_mockup_url=await generateMockup(prod.frontImage,p.front_logo_url,p.front_placement);
-          if(p.back_logo_url && !p.back_mockup_url)
-            patch.back_mockup_url=await generateMockup(prod.backImage,p.back_logo_url,p.back_placement);
+          if(p.colours && p.colours.length){
+            // One mockup per colour, composited on that colour's own photo,
+            // so the storefront shows the design on the actual selected colour
+            // instead of a single generic shot reused for every variant.
+            if(!p.colour_mockups){
+              const colourMockups={};
+              for(const colour of p.colours){
+                const imgs=prod.colourImages?.[colour]||{};
+                const entry={};
+                if(p.front_logo_url)entry.front=await generateMockup(imgs.front||prod.frontImage,p.front_logo_url,p.front_placement);
+                if(p.back_logo_url)entry.back=await generateMockup(imgs.back||prod.backImage,p.back_logo_url,p.back_placement);
+                colourMockups[colour]=entry;
+              }
+              patch.colour_mockups=colourMockups;
+              const first=colourMockups[p.colours[0]];
+              if(first?.front)patch.front_mockup_url=first.front;
+              if(first?.back)patch.back_mockup_url=first.back;
+            }
+          }else{
+            if(p.front_logo_url && !p.front_mockup_url)
+              patch.front_mockup_url=await generateMockup(prod.frontImage,p.front_logo_url,p.front_placement);
+            if(p.back_logo_url && !p.back_mockup_url)
+              patch.back_mockup_url=await generateMockup(prod.backImage,p.back_logo_url,p.back_placement);
+          }
         }catch(e){
           showToast(`Mockup generation failed for ${prod.name}: ${e.message}`);
         }

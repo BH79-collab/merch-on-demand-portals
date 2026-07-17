@@ -796,17 +796,21 @@ function AdminPortal({onLogout}){
   const[loading,setLoading]=useState(true);
   const[toast,setToast]=useState(null);
   const[publishing,setPublishing]=useState(null);
+  const[vendorProducts,setVendorProducts]=useState([]);
+  const[catalogue,setCatalogue]=useState([]);
 
   const showToast=(msg)=>{setToast(msg);setTimeout(()=>setToast(null),3000);};
 
   const load=useCallback(async()=>{
     setLoading(true);
-    const[{data:v},{data:o},{data:p}]=await Promise.all([
+    const[{data:v},{data:o},{data:p},{data:vp},cat]=await Promise.all([
       sb.from("vendors").select("*").order("created_at",{ascending:false}),
       sb.from("orders").select("*").order("order_date",{ascending:false}),
       sb.from("payments").select("*").order("created_at",{ascending:false}),
+      sb.from("vendor_products").select("*"),
+      fetchProducts().catch(()=>[]),
     ]);
-    setVendors(v||[]);setOrders(o||[]);setPayments(p||[]);
+    setVendors(v||[]);setOrders(o||[]);setPayments(p||[]);setVendorProducts(vp||[]);setCatalogue(cat);
     setLoading(false);
   },[]);
 
@@ -988,22 +992,25 @@ function AdminPortal({onLogout}){
             </div>
             {/* Design summary */}
             {(()=>{
-              let slots=[];
-              try{const n=JSON.parse(vd.notes||"{}");slots=n.productSlots||[];}catch(e){}
-              const filled=slots.filter(s=>s&&s.productId);
-              if(!filled.length)return null;
+              const rows=vendorProducts.filter(p=>p.vendor_id===vd.id);
+              if(!rows.length)return(<div style={{background:S.bg,borderRadius:12,padding:14,marginBottom:14}}><p style={{color:S.muted,fontSize:12}}>No products set up yet.</p></div>);
               return(<div style={{background:S.bg,borderRadius:12,padding:14,marginBottom:14}}>
                 <p style={{fontWeight:700,color:S.text,marginBottom:10,fontSize:13}}>Design Selections</p>
-                {filled.map((s,i)=>(
-                  <div key={i} style={{background:S.card,borderRadius:8,padding:10,marginBottom:8}}>
-                    <p style={{color:S.text,fontWeight:600,fontSize:12,marginBottom:4}}>Product {i+1}: {s.productId}</p>
+                {rows.map((s)=>{
+                  const prod=catalogue.find(c=>c.id===s.product_id);
+                  return(
+                  <div key={s.id} style={{background:S.card,borderRadius:8,padding:10,marginBottom:8}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+                      <p style={{color:S.text,fontWeight:600,fontSize:12}}>{prod?.name||s.product_id}</p>
+                      {s.shopify_product_id?<Tag color={S.green}>Published</Tag>:<Tag color={S.muted}>Not published</Tag>}
+                    </div>
                     {s.colours&&s.colours.length>0&&<p style={{color:S.muted,fontSize:11,marginBottom:2}}>Colours: {s.colours.join(", ")}</p>}
                     {s.sizes&&s.sizes.length>0&&<p style={{color:S.muted,fontSize:11,marginBottom:2}}>Sizes: {s.sizes.join(", ")}</p>}
-                    {s.frontLogo&&<p style={{color:S.muted,fontSize:11,marginBottom:2}}>Front logo: {s.frontLogo.name}</p>}
-                    {s.backLogo&&<p style={{color:S.muted,fontSize:11,marginBottom:2}}>Back logo: {s.backLogo.name}</p>}
-                    {s.notes&&<p style={{color:S.muted,fontSize:11,fontStyle:"italic"}}>Notes: {s.notes}</p>}
+                    {s.front_logo_url&&<p style={{color:S.muted,fontSize:11,marginBottom:2}}>Front logo: <a href={s.front_logo_url} target="_blank" style={{color:S.accent}}>view</a></p>}
+                    {s.back_logo_url&&<p style={{color:S.muted,fontSize:11,marginBottom:2}}>Back logo: <a href={s.back_logo_url} target="_blank" style={{color:S.accent}}>view</a></p>}
                   </div>
-                ))}
+                  );
+                })}
               </div>);
             })()}
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>

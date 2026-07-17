@@ -1448,6 +1448,7 @@ function ProductionView({vendors, vendorProducts}){
   const [notesDraft, setNotesDraft] = useState({});
   const [saving, setSaving] = useState({});
   const [toast, setToast] = useState(null);
+  const [lightbox, setLightbox] = useState(null);
 
   const showToast = msg => { setToast(msg); setTimeout(()=>setToast(null), 2500); };
 
@@ -1529,12 +1530,24 @@ function ProductionView({vendors, vendorProducts}){
                       <div><p style={{color:S.muted,fontSize:9,fontWeight:700,textTransform:"uppercase",marginBottom:3}}>Back artwork</p><a href={downloadUrl(vp.back_logo_url)} download style={{color:S.green,fontSize:11,fontWeight:700,textDecoration:"none"}}>⬇ Download</a></div>
                     </div>
                   )}
-                  {colourMockup?.front && (
+                  {(()=>{const url=colourMockup?.front||vp?.front_mockup_url; return url && (
                     <div style={{display:"flex",alignItems:"center",gap:8,background:S.faint,borderRadius:10,padding:8}}>
-                      <img src={colourMockup.front} style={{width:40,height:40,objectFit:"cover",borderRadius:6,background:"#000"}}/>
-                      <div><p style={{color:S.muted,fontSize:9,fontWeight:700,textTransform:"uppercase",marginBottom:3}}>Mockup ({o.variant_title})</p><a href={colourMockup.front} target="_blank" style={{color:S.accent,fontSize:11,fontWeight:700,textDecoration:"none"}}>View</a></div>
+                      <img src={url} onClick={()=>setLightbox(url)} style={{width:40,height:40,objectFit:"cover",borderRadius:6,background:"#000",cursor:"pointer"}}/>
+                      <div>
+                        <p style={{color:S.muted,fontSize:9,fontWeight:700,textTransform:"uppercase",marginBottom:3}}>Mockup front{o.variant_title?` (${o.variant_title})`:""}</p>
+                        <button onClick={()=>setLightbox(url)} style={{background:"none",border:"none",padding:0,color:S.accent,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>🔍 Enlarge</button>
+                      </div>
                     </div>
-                  )}
+                  );})()}
+                  {(()=>{const url=colourMockup?.back||vp?.back_mockup_url; return url && (
+                    <div style={{display:"flex",alignItems:"center",gap:8,background:S.faint,borderRadius:10,padding:8}}>
+                      <img src={url} onClick={()=>setLightbox(url)} style={{width:40,height:40,objectFit:"cover",borderRadius:6,background:"#000",cursor:"pointer"}}/>
+                      <div>
+                        <p style={{color:S.muted,fontSize:9,fontWeight:700,textTransform:"uppercase",marginBottom:3}}>Mockup back{o.variant_title?` (${o.variant_title})`:""}</p>
+                        <button onClick={()=>setLightbox(url)} style={{background:"none",border:"none",padding:0,color:S.accent,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>🔍 Enlarge</button>
+                      </div>
+                    </div>
+                  );})()}
                   {!vp && <p style={{color:S.muted,fontSize:12}}>Couldn't match this line to a product's artwork — may predate the linking fix.</p>}
                 </div>
 
@@ -1546,6 +1559,13 @@ function ProductionView({vendors, vendorProducts}){
               </Card>
             );
           })}
+        </div>
+      )}
+
+      {lightbox && (
+        <div onClick={()=>setLightbox(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.85)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:500,cursor:"zoom-out",padding:30}}>
+          <img src={lightbox} style={{maxWidth:"90vw",maxHeight:"90vh",borderRadius:12,boxShadow:"0 20px 60px rgba(0,0,0,0.5)"}}/>
+          <button onClick={()=>setLightbox(null)} style={{position:"absolute",top:20,right:24,background:"rgba(255,255,255,0.1)",border:"none",borderRadius:"50%",width:36,height:36,color:"#fff",fontSize:18,cursor:"pointer"}}>✕</button>
         </div>
       )}
     </div>

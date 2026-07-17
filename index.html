@@ -946,7 +946,7 @@ function AdminPortal({onLogout}){
 
   const vd=detail?vendors.find(v=>v.id===detail):null;
 
-  const NAV=[["dashboard","Dashboard","◈"],["vendors","Vendors","⬡"],["payments","Payments","◆"],["orders","Orders","◎"],["plans","Plans","★"],["printzones","Print Zones","▦"],["printfiles","Print Files","⬇"]];
+  const NAV=[["dashboard","Dashboard","◈"],["vendors","Vendors","⬡"],["payments","Payments","◆"],["orders","Orders","◎"],["production","Production","🏭"],["plans","Plans","★"],["printzones","Print Zones","▦"],["printfiles","Print Files","⬇"]];
 
   if(loading)return<div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",background:S.bg}}><Spin/></div>;
 
@@ -1150,6 +1150,8 @@ function AdminPortal({onLogout}){
         {view==="printzones"&&<PrintZoneEditor/>}
 
         {view==="printfiles"&&<PrintFilesView vendors={vendors}/>}
+
+        {view==="production"&&<ProductionView vendors={vendors} vendorProducts={vendorProducts}/>}
 
       </div>
 
@@ -1426,6 +1428,120 @@ function PrintFilesView({vendors}){
                     );
                   })}
                   {!r.front_logo_url && !r.back_logo_url && <p style={{color:S.muted,fontSize:12}}>No logos uploaded yet.</p>}
+                </div>
+              </Card>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Production (orders -> artwork for fulfillment) ───────────────────────────
+const PRODUCTION_STATUSES = ["pending","approved","goods_ordered","shipped"];
+
+function ProductionView({vendors, vendorProducts}){
+  const [orders, setOrders] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [q, setQ] = useState("");
+  const [notesDraft, setNotesDraft] = useState({});
+  const [saving, setSaving] = useState({});
+  const [toast, setToast] = useState(null);
+
+  const showToast = msg => { setToast(msg); setTimeout(()=>setToast(null), 2500); };
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    const { data } = await sb.from("orders").select("*").order("order_date", {ascending:false});
+    setOrders(data || []);
+    setLoading(false);
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  const vendorById = id => vendors.find(v => v.id === id);
+  const vpById = id => vendorProducts.find(p => p.id === id);
+
+  const updateStatus = async (order, status) => {
+    setOrders(os => os.map(o => o.id === order.id ? {...o, production_status:status} : o));
+    const { error } = await sb.from("orders").update({production_status:status}).eq("id", order.id);
+    if (error) showToast("Update failed: " + error.message);
+  };
+
+  const saveNotes = async order => {
+    setSaving(s => ({...s, [order.id]:true}));
+    const notes = notesDraft[order.id] ?? order.production_notes ?? "";
+    const { error } = await sb.from("orders").update({production_notes:notes}).eq("id", order.id);
+    setSaving(s => ({...s, [order.id]:false}));
+    if (error) { showToast("Save failed: " + error.message); return; }
+    setOrders(os => os.map(o => o.id === order.id ? {...o, production_notes:notes} : o));
+    showToast("Notes saved");
+  };
+
+  const filtered = orders.filter(o => {
+    if (!q) return true;
+    const v = vendorById(o.vendor_id);
+    const hay = `${v?.brand_name||v?.store_name||""} ${o.product_title||""} ${o.shopify_order_id||""}`.toLowerCase();
+    return hay.includes(q.toLowerCase());
+  });
+
+  if (loading) return <div style={{display:"flex",justifyContent:"center",padding:60}}><Spin/></div>;
+
+  return (
+    <div style={{display:"flex",flexDirection:"column",gap:16}}>
+      {toast && <div style={{position:"fixed",top:16,left:"50%",transform:"translateX(-50%)",background:S.green,color:"#000",padding:"10px 20px",borderRadius:10,fontWeight:700,fontSize:13,zIndex:300}}>{toast}</div>}
+      <div>
+        <p style={{fontFamily:"monospace",fontSize:22,fontWeight:900,color:S.text}}>Production</p>
+        <p style={{color:S.muted,fontSize:12,marginTop:3}}>{orders.length} order line{orders.length===1?"":"s"}. Artwork matched to each line automatically via the product that was published.</p>
+      </div>
+      <input value={q} onChange={e=>setQ(e.target.value)} placeholder="Search by vendor, product, or order number..."
+        style={{width:"100%",padding:"10px 14px",background:"rgba(255,255,255,0.05)",border:`1px solid ${S.border}`,borderRadius:10,color:S.text,fontSize:13,fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/>
+
+      {filtered.length===0 ? <p style={{color:S.muted,fontSize:13,textAlign:"center",padding:"30px 0"}}>No orders yet.</p> : (
+        <div style={{display:"flex",flexDirection:"column",gap:10}}>
+          {filtered.map(o=>{
+            const v = vendorById(o.vendor_id);
+            const vp = vpById(o.vendor_product_id);
+            const colourMockup = vp?.colour_mockups?.[o.variant_title];
+            return (
+              <Card key={o.id} style={{padding:14}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10,gap:10,flexWrap:"wrap"}}>
+                  <div>
+                    <p style={{color:S.text,fontWeight:700,fontSize:13}}>#{o.shopify_order_id} · {v?.brand_name||v?.store_name||"Unknown vendor"}</p>
+                    <p style={{color:S.muted,fontSize:11}}>{o.product_title}{o.variant_title?` — ${o.variant_title}`:""} · qty {o.quantity} · {fmtD(o.order_date)}</p>
+                  </div>
+                  <select value={o.production_status||"pending"} onChange={e=>updateStatus(o,e.target.value)}
+                    style={{padding:"6px 10px",borderRadius:8,border:`1px solid ${S.border}`,background:S.faint,color:S.text,fontSize:11,fontWeight:700,textTransform:"uppercase",fontFamily:"inherit"}}>
+                    {PRODUCTION_STATUSES.map(s=><option key={s} value={s}>{s.replace("_"," ")}</option>)}
+                  </select>
+                </div>
+
+                <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:10}}>
+                  {vp?.front_logo_url && (
+                    <div style={{display:"flex",alignItems:"center",gap:8,background:S.faint,borderRadius:10,padding:8}}>
+                      <img src={vp.front_logo_url} style={{width:40,height:40,objectFit:"contain",borderRadius:6,background:"#000"}}/>
+                      <div><p style={{color:S.muted,fontSize:9,fontWeight:700,textTransform:"uppercase",marginBottom:3}}>Front artwork</p><a href={downloadUrl(vp.front_logo_url)} download style={{color:S.green,fontSize:11,fontWeight:700,textDecoration:"none"}}>⬇ Download</a></div>
+                    </div>
+                  )}
+                  {vp?.back_logo_url && (
+                    <div style={{display:"flex",alignItems:"center",gap:8,background:S.faint,borderRadius:10,padding:8}}>
+                      <img src={vp.back_logo_url} style={{width:40,height:40,objectFit:"contain",borderRadius:6,background:"#000"}}/>
+                      <div><p style={{color:S.muted,fontSize:9,fontWeight:700,textTransform:"uppercase",marginBottom:3}}>Back artwork</p><a href={downloadUrl(vp.back_logo_url)} download style={{color:S.green,fontSize:11,fontWeight:700,textDecoration:"none"}}>⬇ Download</a></div>
+                    </div>
+                  )}
+                  {colourMockup?.front && (
+                    <div style={{display:"flex",alignItems:"center",gap:8,background:S.faint,borderRadius:10,padding:8}}>
+                      <img src={colourMockup.front} style={{width:40,height:40,objectFit:"cover",borderRadius:6,background:"#000"}}/>
+                      <div><p style={{color:S.muted,fontSize:9,fontWeight:700,textTransform:"uppercase",marginBottom:3}}>Mockup ({o.variant_title})</p><a href={colourMockup.front} target="_blank" style={{color:S.accent,fontSize:11,fontWeight:700,textDecoration:"none"}}>View</a></div>
+                    </div>
+                  )}
+                  {!vp && <p style={{color:S.muted,fontSize:12}}>Couldn't match this line to a product's artwork — may predate the linking fix.</p>}
+                </div>
+
+                <div style={{display:"flex",gap:8}}>
+                  <input value={notesDraft[o.id]??o.production_notes??""} onChange={e=>setNotesDraft(d=>({...d,[o.id]:e.target.value}))} placeholder="Production notes..."
+                    style={{flex:1,padding:"8px 10px",background:"rgba(255,255,255,0.05)",border:`1px solid ${S.border}`,borderRadius:8,color:S.text,fontSize:12,fontFamily:"inherit",outline:"none"}}/>
+                  <Btn small outline color={S.muted} disabled={!!saving[o.id]} onClick={()=>saveNotes(o)}>{saving[o.id]?<Spin/>:"Save"}</Btn>
                 </div>
               </Card>
             );

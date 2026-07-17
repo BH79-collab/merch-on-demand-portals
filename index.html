@@ -850,16 +850,27 @@ function AdminPortal({onLogout}){
   // generates a composited mockup per logo, uploads it, then has the proxy
   // (privileged Admin API access) create the actual products/variants and
   // add them to the vendor's collection.
-  const approveAndPublish=async(vendor)=>{
+  // onlyProduct: pass a specific vendor_products row to publish just that
+  // one (per-row "Publish" button); omit to publish everything unpublished
+  // for the vendor at once.
+  const approveAndPublish=async(vendor,onlyProduct)=>{
     const brandName=vendor.brand_name||vendor.store_name||vendor.name||"this vendor";
-    const{data:vp}=await sb.from("vendor_products").select("*").eq("vendor_id",vendor.id);
-    const products=(vp||[]).filter(p=>p.product_id);
-    if(!products.length){showToast("No products to publish for "+brandName);return;}
-    const toPublish=products.filter(p=>!p.shopify_product_id);
-    if(!toPublish.length){showToast("All products already published for "+brandName);return;}
-    if(!confirm(`This will create ${toPublish.length} live Shopify product(s) for ${brandName}, published immediately on the storefront. Continue?`))return;
+    let toPublish;
+    if(onlyProduct){
+      if(onlyProduct.shopify_product_id){showToast("Already published");return;}
+      toPublish=[onlyProduct];
+    }else{
+      const{data:vp}=await sb.from("vendor_products").select("*").eq("vendor_id",vendor.id);
+      const products=(vp||[]).filter(p=>p.product_id);
+      if(!products.length){showToast("No products to publish for "+brandName);return;}
+      toPublish=products.filter(p=>!p.shopify_product_id);
+      if(!toPublish.length){showToast("All products already published for "+brandName);return;}
+    }
+    const label=onlyProduct?"this product":`${toPublish.length} product(s)`;
+    if(!confirm(`This will create ${label} live on Shopify for ${brandName}, published immediately on the storefront. Continue?`))return;
 
-    setPublishing(vendor.id);
+    const publishKey=onlyProduct?onlyProduct.id:vendor.id;
+    setPublishing(publishKey);
     try{
       if(vendor.status!=="active")await setStatus(vendor.id,"active");
 
@@ -893,22 +904,30 @@ function AdminPortal({onLogout}){
             if(p.back_logo_url && !p.back_mockup_url)
               patch.back_mockup_url=await generateMockup(prod.backImage,p.back_logo_url,p.back_placement);
           }
+          if(Object.keys(patch).length){
+            const{error}=await sb.from("vendor_products").update(patch).eq("id",p.id);
+            if(error)throw new Error("Saving mockup(s) failed: "+error.message);
+          }
         }catch(e){
           showToast(`Mockup generation failed for ${prod.name}: ${e.message}`);
         }
-        if(Object.keys(patch).length)await sb.from("vendor_products").update(patch).eq("id",p.id);
       }
 
       const res=await fetch(PROXY+"/shopify/publish-vendor",{
         method:"POST",headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({vendorId:vendor.id}),
+        body:JSON.stringify(onlyProduct?{vendorId:vendor.id,productRowId:onlyProduct.id}:{vendorId:vendor.id}),
       });
       const data=await res.json();
       if(!res.ok)throw new Error(data.error||"Publish failed");
       const ok=(data.results||[]).filter(r=>r.status==="published").length;
       const failed=(data.results||[]).filter(r=>r.status==="error");
-      showToast(`${brandName}: ${ok} product(s) published${failed.length?`, ${failed.length} failed`:""}`);
-      if(failed.length)console.error("Publish errors:",failed);
+      if(failed.length){
+        showToast(`${brandName}: ${failed[0].error||"publish failed"}`);
+        console.error("Publish errors:",failed);
+      }else{
+        showToast(`${brandName}: ${ok} product(s) published`);
+      }
+      await load();
     }catch(e){
       showToast("Publish failed: "+e.message);
     }finally{
@@ -1028,16 +1047,25 @@ function AdminPortal({onLogout}){
                 <p style={{fontWeight:700,color:S.text,marginBottom:10,fontSize:13}}>Design Selections</p>
                 {rows.map((s)=>{
                   const prod=catalogue.find(c=>c.id===s.product_id);
+                  const thumb=s.front_mockup_url||Object.values(s.colour_mockups||{})[0]?.front||prod?.frontImage;
                   return(
-                  <div key={s.id} style={{background:S.card,borderRadius:8,padding:10,marginBottom:8}}>
-                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
-                      <p style={{color:S.text,fontWeight:600,fontSize:12}}>{prod?.name||s.product_id}</p>
-                      {s.shopify_product_id?<Tag color={S.green}>Published</Tag>:<Tag color={S.muted}>Not published</Tag>}
+                  <div key={s.id} style={{display:"flex",gap:10,background:S.card,borderRadius:8,padding:10,marginBottom:8}}>
+                    {thumb?<img src={thumb} style={{width:52,height:52,objectFit:"cover",borderRadius:6,background:"#000",flexShrink:0}}/>:<div style={{width:52,height:52,borderRadius:6,background:S.faint,flexShrink:0}}/>}
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4,gap:8}}>
+                        <p style={{color:S.text,fontWeight:600,fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{prod?.name||s.product_id}</p>
+                        <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
+                          {s.shopify_product_id?<Tag color={S.green}>Published</Tag>:<Tag color={S.muted}>Not published</Tag>}
+                          {!s.shopify_product_id&&(
+                            <Btn small outline color={"#00AEEF"} disabled={publishing===s.id} onClick={()=>approveAndPublish(vd,s)}>{publishing===s.id?<Spin/>:"Publish"}</Btn>
+                          )}
+                        </div>
+                      </div>
+                      {s.colours&&s.colours.length>0&&<p style={{color:S.muted,fontSize:11,marginBottom:2}}>Colours: {s.colours.join(", ")}</p>}
+                      {s.sizes&&s.sizes.length>0&&<p style={{color:S.muted,fontSize:11,marginBottom:2}}>Sizes: {s.sizes.join(", ")}</p>}
+                      {s.front_logo_url&&<p style={{color:S.muted,fontSize:11,marginBottom:2}}>Front logo: <a href={s.front_logo_url} target="_blank" style={{color:S.accent}}>view</a></p>}
+                      {s.back_logo_url&&<p style={{color:S.muted,fontSize:11,marginBottom:2}}>Back logo: <a href={s.back_logo_url} target="_blank" style={{color:S.accent}}>view</a></p>}
                     </div>
-                    {s.colours&&s.colours.length>0&&<p style={{color:S.muted,fontSize:11,marginBottom:2}}>Colours: {s.colours.join(", ")}</p>}
-                    {s.sizes&&s.sizes.length>0&&<p style={{color:S.muted,fontSize:11,marginBottom:2}}>Sizes: {s.sizes.join(", ")}</p>}
-                    {s.front_logo_url&&<p style={{color:S.muted,fontSize:11,marginBottom:2}}>Front logo: <a href={s.front_logo_url} target="_blank" style={{color:S.accent}}>view</a></p>}
-                    {s.back_logo_url&&<p style={{color:S.muted,fontSize:11,marginBottom:2}}>Back logo: <a href={s.back_logo_url} target="_blank" style={{color:S.accent}}>view</a></p>}
                   </div>
                   );
                 })}

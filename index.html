@@ -1439,7 +1439,8 @@ function PrintFilesView({vendors}){
 }
 
 // ── Production (orders -> artwork for fulfillment) ───────────────────────────
-const PRODUCTION_STATUSES = ["pending","approved","goods_ordered","shipped"];
+const PRODUCTION_STATUSES = ["pending","in_production","on_hold_stock_issue","shipped"];
+const STATUS_COLOURS = {pending:"#8C8580", in_production:"#00AEEF", on_hold_stock_issue:"#F0B429", shipped:"#2A7A4B"};
 
 function ProductionView({vendors, vendorProducts}){
   const [orders, setOrders] = useState([]);
@@ -1511,10 +1512,16 @@ function ProductionView({vendors, vendorProducts}){
                     <p style={{color:S.text,fontWeight:700,fontSize:13}}>#{o.shopify_order_id} · {v?.brand_name||v?.store_name||"Unknown vendor"}</p>
                     <p style={{color:S.muted,fontSize:11}}>{o.product_title}{o.variant_title?` — ${o.variant_title}`:""} · qty {o.quantity} · {fmtD(o.order_date)}</p>
                   </div>
-                  <select value={o.production_status||"pending"} onChange={e=>updateStatus(o,e.target.value)}
-                    style={{padding:"6px 10px",borderRadius:8,border:`1px solid ${S.border}`,background:S.faint,color:S.text,fontSize:11,fontWeight:700,textTransform:"uppercase",fontFamily:"inherit"}}>
-                    {PRODUCTION_STATUSES.map(s=><option key={s} value={s}>{s.replace("_"," ")}</option>)}
-                  </select>
+                  <div style={{display:"flex",alignItems:"center",gap:8}}>
+                    {v?.email && (
+                      <a href={`mailto:${v.email}?subject=${encodeURIComponent("Order #"+o.shopify_order_id+" — stock issue, need alternative")}`}
+                        style={{color:S.accent,fontSize:11,fontWeight:700,textDecoration:"none",whiteSpace:"nowrap"}}>✉ Email Vendor</a>
+                    )}
+                    <select value={o.production_status||"pending"} onChange={e=>updateStatus(o,e.target.value)}
+                      style={{padding:"6px 10px",borderRadius:8,border:`1.5px solid ${STATUS_COLOURS[o.production_status||"pending"]}`,background:S.faint,color:STATUS_COLOURS[o.production_status||"pending"],fontSize:11,fontWeight:700,textTransform:"uppercase",fontFamily:"inherit"}}>
+                      {PRODUCTION_STATUSES.map(s=><option key={s} value={s}>{s.replace(/_/g," ")}</option>)}
+                    </select>
+                  </div>
                 </div>
 
                 <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:10}}>
